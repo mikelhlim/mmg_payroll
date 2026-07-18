@@ -363,3 +363,11 @@ $$;
 
 grant execute on function public.finalize_payroll_period(uuid) to authenticated;
 grant execute on function public.admin_wipe_all_data() to authenticated;
+
+-- ============================================================================
+-- Amendments & audit log (see migration 20260718090000). Re-run safe.
+-- transaction_logs, payroll_periods.version/amended_at, reopen_payroll_period(),
+-- and the day-validation inside finalize_payroll_period() are added there.
+-- The canonical, up-to-date definitions live in that migration file; this
+-- schema.sql seeds a fresh database when combined with the migrations folder.
+-- ============================================================================

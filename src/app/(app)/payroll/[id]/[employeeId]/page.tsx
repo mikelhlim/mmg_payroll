@@ -74,6 +74,8 @@ export default async function ComputeEmployeePage({
 
       <ComputeForm
         periodId={id}
+        periodStart={period.period_start}
+        periodEnd={period.period_end}
         periodFinalized={period.status === "finalized"}
         employee={employee}
         loans={(loanRows ?? []) as Loan[]}

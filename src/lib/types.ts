@@ -61,6 +61,8 @@ export type PayrollPeriod = {
   created_by: string | null;
   created_at: string;
   finalized_at: string | null;
+  version: number;
+  amended_at: string | null;
 };
 
 export type AdvanceAllocation = { advance_id: string; amount: number };

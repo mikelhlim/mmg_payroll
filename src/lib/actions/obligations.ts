@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertAuthenticated } from "@/lib/auth-role";
+import { logTransaction } from "@/lib/transaction-log";
+import { formatPHP } from "@/lib/money";
 import {
   advanceSchema,
   loanSchema,
@@ -38,6 +40,13 @@ export async function saveLoan(employeeId: string, raw: LoanInput): Promise<Resu
   );
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "loan",
+    entity_id: employeeId,
+    summary: `Saved ${v.loan_type} loan — balance ${formatPHP(v.current_balance)}`,
+  });
+
   revalidatePath(`/employees/${employeeId}`);
   revalidatePath("/");
   return { ok: true };
@@ -58,6 +67,14 @@ export async function clearLoan(employeeId: string, loanType: "SSS" | "PAGIBIG")
     }
     return { error: error.message };
   }
+
+  await logTransaction(supabase, {
+    action: "delete",
+    entity: "loan",
+    entity_id: employeeId,
+    summary: `Removed ${loanType} loan`,
+  });
+
   revalidatePath(`/employees/${employeeId}`);
   return { ok: true };
 }
@@ -90,6 +107,13 @@ export async function createAdvance(employeeId: string, raw: AdvanceInput): Prom
   });
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "create",
+    entity: "advance",
+    entity_id: employeeId,
+    summary: `Added advance "${nullify(v.label) ?? "Advance"}" — ${formatPHP(v.current_balance)}`,
+  });
+
   revalidatePath(`/employees/${employeeId}`);
   revalidatePath("/");
   return { ok: true };
@@ -119,6 +143,15 @@ export async function updateAdvance(
     .eq("id", advanceId);
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "advance",
+    entity_id: employeeId,
+    summary: `Updated advance "${nullify(v.label) ?? "Advance"}" — balance ${formatPHP(
+      v.current_balance
+    )}`,
+  });
+
   revalidatePath(`/employees/${employeeId}`);
   revalidatePath("/");
   return { ok: true };
@@ -135,6 +168,14 @@ export async function deleteAdvance(advanceId: string, employeeId: string): Prom
     }
     return { error: error.message };
   }
+
+  await logTransaction(supabase, {
+    action: "delete",
+    entity: "advance",
+    entity_id: employeeId,
+    summary: "Deleted an advance",
+  });
+
   revalidatePath(`/employees/${employeeId}`);
   revalidatePath("/");
   return { ok: true };

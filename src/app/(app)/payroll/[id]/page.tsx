@@ -2,14 +2,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { FinalizeButton } from "@/components/payroll/finalize-button";
+import { AmendButton } from "@/components/payroll/amend-button";
+import { DeletePeriodButton } from "@/components/payroll/delete-period-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
+import { LocalTime } from "@/components/local-time";
 import { formatPeriod } from "@/lib/payroll/period";
+import { daysMatch, periodDays } from "@/lib/payroll/validation";
 import { formatPHP } from "@/lib/money";
 import { fullName, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, CheckCircle2, ChevronRight, Circle, Download } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, Circle, Download } from "lucide-react";
 
 export default async function PayrollPeriodPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -45,11 +49,22 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
         .filter((e): e is Employee => Boolean(e))
     : employees;
 
+  const range = { period_start: period.period_start, period_end: period.period_end };
+  const expectedDays = periodDays(range);
+  const entryDaysMatch = (e: PayrollEntry) => daysMatch(range, e.days_worked, e.days_on_leave);
+
   const computedCount = rosterIds.filter((eid) => entryByEmployee.has(eid)).length;
   const totalNet = entries.reduce((sum, e) => sum + e.net_weekly_pay, 0);
   const anyNonPositive = entries.some((e) => e.net_weekly_pay <= 0);
   const allComputed = employees.length > 0 && employees.every((e) => entryByEmployee.has(e.id));
-  const canFinalize = !finalized && allComputed && !anyNonPositive && employees.length > 0;
+  const allDaysMatch =
+    employees.length > 0 &&
+    employees.every((e) => {
+      const en = entryByEmployee.get(e.id);
+      return en ? entryDaysMatch(en) : false;
+    });
+  const canFinalize =
+    !finalized && allComputed && !anyNonPositive && allDaysMatch && employees.length > 0;
 
   return (
     <div className="space-y-6">
@@ -68,24 +83,49 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
             <Badge variant={finalized ? "default" : "secondary"}>
               {finalized ? "Finalized" : "Draft"}
             </Badge>
+            {(period.version ?? 1) > 1 && (
+              <Badge variant="secondary" className="bg-warning/15 text-warning-foreground">
+                v{period.version}
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground">
-            {computedCount} of {rosterIds.length} computed
+            {computedCount} of {rosterIds.length} computed · {expectedDays}-day period
             {period.note ? ` · ${period.note}` : ""}
+            {finalized && period.finalized_at ? (
+              <>
+                {" · finalized "}
+                <LocalTime iso={period.finalized_at} />
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {finalized && (
-            <a
-              href={`/payroll/${id}/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <Download className="h-4 w-4" /> Payslips PDF
-            </a>
+            <>
+              <a
+                href={`/payroll/${id}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({ variant: "outline" })}
+              >
+                <Download className="h-4 w-4" /> Payslips PDF
+              </a>
+              <AmendButton periodId={id} />
+            </>
           )}
-          {!finalized && <FinalizeButton periodId={id} canFinalize={canFinalize} anyNonPositive={anyNonPositive} allComputed={allComputed} />}
+          {!finalized && (
+            <>
+              <FinalizeButton
+                periodId={id}
+                canFinalize={canFinalize}
+                anyNonPositive={anyNonPositive}
+                allComputed={allComputed}
+                allDaysMatch={allDaysMatch}
+              />
+              <DeletePeriodButton periodId={id} />
+            </>
+          )}
         </div>
       </div>
 
@@ -96,11 +136,21 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
             <p className="text-sm text-muted-foreground">Total net pay ({entries.length} paid)</p>
             <p className="text-3xl font-bold tabular-nums text-primary">{formatPHP(totalNet)}</p>
           </div>
-          {anyNonPositive && !finalized && (
-            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
-              One or more employees have net pay ≤ ₱0. Resolve before finalizing.
-            </p>
-          )}
+          <div className="space-y-2">
+            {anyNonPositive && !finalized && (
+              <p className="flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                One or more employees have net pay ≤ ₱0. Resolve before finalizing.
+              </p>
+            )}
+            {!finalized && allComputed && !allDaysMatch && (
+              <p className="flex items-center gap-1.5 rounded-lg bg-warning/15 px-3 py-2 text-sm font-medium text-warning-foreground">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                Some employees&apos; days worked + leave don&apos;t equal the {expectedDays}-day
+                period. Fix before finalizing.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -132,8 +182,14 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
                       <p className="font-medium">{fullName(emp)}</p>
                       <p className="text-xs text-muted-foreground">
                         {computed
-                          ? `${entry!.days_worked} days worked`
+                          ? `${entry!.days_worked}d worked · ${entry!.days_on_leave}d leave`
                           : "Not computed yet"}
+                        {computed && !entryDaysMatch(entry!) && (
+                          <span className="font-medium text-warning-foreground">
+                            {" "}
+                            · ≠ {expectedDays}-day period
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="text-right">

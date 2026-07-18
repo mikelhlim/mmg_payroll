@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { finalizePeriod } from "@/lib/actions/payroll";
+import { deletePeriod } from "@/lib/actions/payroll";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -16,72 +16,55 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Lock, Loader2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 
-export function FinalizeButton({
-  periodId,
-  canFinalize,
-  anyNonPositive,
-  allComputed,
-  allDaysMatch = true,
-}: {
-  periodId: string;
-  canFinalize: boolean;
-  anyNonPositive: boolean;
-  allComputed: boolean;
-  allDaysMatch?: boolean;
-}) {
+export function DeletePeriodButton({ periodId }: { periodId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
-  const hint = !allComputed
-    ? "Compute every employee first"
-    : !allDaysMatch
-      ? "Days worked + leave must equal the period length for everyone"
-      : anyNonPositive
-        ? "Resolve net pay ≤ ₱0 first"
-        : "";
-
-  if (!canFinalize) {
-    return (
-      <Button disabled title={hint}>
-        <Lock className="h-4 w-4" /> Finalize
-      </Button>
-    );
-  }
-
   return (
     <AlertDialog>
-      <AlertDialogTrigger render={<Button />}>
-        <Lock className="h-4 w-4" /> Finalize run
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete payroll run"
+            className="text-muted-foreground hover:text-destructive"
+          />
+        }
+      >
+        <Trash2 className="h-4 w-4" />
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Finalize this payroll run?</AlertDialogTitle>
+          <AlertDialogTitle>Delete this draft payroll run?</AlertDialogTitle>
           <AlertDialogDescription>
-            This locks the period, records each payslip, and draws down every loan and advance
-            balance by the amounts deducted. This can&apos;t be undone.
+            This removes the run and any draft entries you&apos;ve computed. Finalized runs can&apos;t
+            be deleted. This can&apos;t be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            className="bg-destructive text-white hover:bg-destructive/90"
             disabled={pending}
             onClick={(e) => {
               e.preventDefault();
               startTransition(async () => {
-                const res = await finalizePeriod(periodId);
+                const res = await deletePeriod(periodId);
                 if ("error" in res) {
                   toast.error(res.error);
                   return;
                 }
-                toast.success("Payroll finalized! 🎉");
+                toast.success("Payroll run deleted.");
+                router.push("/payroll");
                 router.refresh();
               });
             }}
           >
             {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            Finalize
+            Delete run
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

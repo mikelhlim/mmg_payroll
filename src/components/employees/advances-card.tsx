@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { HandCoins, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
-function AdvanceDialog({
+export function AdvanceDialog({
   employeeId,
   advance,
   trigger,

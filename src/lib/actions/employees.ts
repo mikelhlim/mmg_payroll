@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertAuthenticated } from "@/lib/auth-role";
+import { logTransaction } from "@/lib/transaction-log";
 import { employeeSchema, type EmployeeInput } from "@/lib/validation/employee";
 
 export type EmployeeActionResult = { error: string } | { ok: true; id: string };
@@ -55,6 +56,13 @@ export async function createEmployee(raw: EmployeeInput): Promise<EmployeeAction
 
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "create",
+    entity: "employee",
+    entity_id: data.id,
+    summary: `Added employee ${parsed.data.last_name}, ${parsed.data.first_name}`,
+  });
+
   revalidatePath("/employees");
   revalidatePath("/");
   return { ok: true, id: data.id };
@@ -75,6 +83,13 @@ export async function updateEmployee(
   const { error } = await supabase.from("employees").update(toRow(parsed.data)).eq("id", id);
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "employee",
+    entity_id: id,
+    summary: `Updated employee ${parsed.data.last_name}, ${parsed.data.first_name}`,
+  });
+
   revalidatePath("/employees");
   revalidatePath(`/employees/${id}`);
   revalidatePath("/");
@@ -84,6 +99,12 @@ export async function updateEmployee(
 export async function deleteEmployee(id: string): Promise<{ error: string } | { ok: true }> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
+
+  const { data: existing } = await supabase
+    .from("employees")
+    .select("first_name, last_name")
+    .eq("id", id)
+    .maybeSingle();
 
   const { error } = await supabase.from("employees").delete().eq("id", id);
   if (error) {
@@ -96,6 +117,15 @@ export async function deleteEmployee(id: string): Promise<{ error: string } | { 
     }
     return { error: error.message };
   }
+
+  await logTransaction(supabase, {
+    action: "delete",
+    entity: "employee",
+    entity_id: id,
+    summary: existing
+      ? `Deleted employee ${existing.last_name}, ${existing.first_name}`
+      : "Deleted employee",
+  });
 
   revalidatePath("/employees");
   revalidatePath("/");

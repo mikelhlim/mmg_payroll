@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertAdmin } from "@/lib/auth-role";
+import { logTransaction } from "@/lib/transaction-log";
 
 type Result = { error: string } | { ok: true };
 
@@ -37,6 +38,12 @@ export async function createUser(raw: CreateUserInput): Promise<Result> {
     return { error: error.message };
   }
 
+  await logTransaction(supabase, {
+    action: "create",
+    entity: "user",
+    summary: `Created ${v.role} user ${v.email}`,
+  });
+
   revalidatePath("/admin");
   return { ok: true };
 }
@@ -61,6 +68,13 @@ export async function updateUserRole(userId: string, role: "admin" | "staff"): P
   });
   if (error) return { error: error.message };
 
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "user",
+    entity_id: userId,
+    summary: `Changed ${existing.user.email} role to ${role}`,
+  });
+
   revalidatePath("/admin");
   return { ok: true };
 }
@@ -75,8 +89,16 @@ export async function deleteUser(userId: string): Promise<Result> {
   if (user?.id === userId) return { error: "You can't delete your own account." };
 
   const admin = createAdminClient();
+  const { data: target } = await admin.auth.admin.getUserById(userId);
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return { error: error.message };
+
+  await logTransaction(supabase, {
+    action: "delete",
+    entity: "user",
+    entity_id: userId,
+    summary: `Deleted user ${target?.user?.email ?? userId}`,
+  });
 
   revalidatePath("/admin");
   return { ok: true };
@@ -93,6 +115,12 @@ export async function wipeAllData(): Promise<Result> {
 
   const { error: rpcError } = await supabase.rpc("admin_wipe_all_data");
   if (rpcError) return { error: rpcError.message };
+
+  await logTransaction(supabase, {
+    action: "wipe",
+    entity: "data",
+    summary: "Deleted all data (employees, payroll, advances, loans, non-admin users)",
+  });
 
   // Remove non-admin (staff) auth users; keep all admins.
   const admin = createAdminClient();

@@ -1,22 +1,33 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { savePayrollEntry } from "@/lib/actions/payroll";
 import { buildEntryRow } from "@/lib/payroll/build-entry";
+import { daysMatch, periodDays } from "@/lib/payroll/validation";
+import { MAX_ADVANCES } from "@/lib/validation/obligations";
 import type { PayrollEntryInput } from "@/lib/validation/payroll";
-import { fullName, type Advance, type Employee, type Loan, type PayrollEntry } from "@/lib/types";
+import { type Advance, type Employee, type Loan, type PayrollEntry } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
+import { AdvanceDialog } from "@/components/employees/advances-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, ArrowLeft, ArrowRight, Loader2, Save } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  CalendarClock,
+  Loader2,
+  Plus,
+  Save,
+} from "lucide-react";
 
 type FormValues = {
   days_worked: number;
@@ -56,6 +67,8 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
 
 export function ComputeForm({
   periodId,
+  periodStart,
+  periodEnd,
   periodFinalized,
   employee,
   loans,
@@ -64,6 +77,8 @@ export function ComputeForm({
   stepper,
 }: {
   periodId: string;
+  periodStart: string;
+  periodEnd: string;
   periodFinalized: boolean;
   employee: Employee;
   loans: Loan[];
@@ -80,6 +95,12 @@ export function ComputeForm({
   });
 
   const values = watch();
+
+  // Day validation — days_worked + days_on_leave must equal the period length.
+  const range = { period_start: periodStart, period_end: periodEnd };
+  const expectedDays = periodDays(range);
+  const daysEntered = (Number(values.days_worked) || 0) + (Number(values.days_on_leave) || 0);
+  const daysOk = daysMatch(range, values.days_worked, values.days_on_leave);
 
   const toInput = (v: FormValues): PayrollEntryInput => ({
     days_worked: Number(v.days_worked) || 0,
@@ -106,6 +127,18 @@ export function ComputeForm({
   const sssLoan = loans.find((l) => l.loan_type === "SSS");
   const pagibigLoan = loans.find((l) => l.loan_type === "PAGIBIG");
 
+  // Auto-save the unfinished run when the user navigates away with unsaved
+  // changes. autosaveRef always holds the latest values/inputs; the effect's
+  // unmount cleanup fires it on client-side navigation.
+  const savedSigRef = useRef(JSON.stringify(defaults(employee, advances, entry)));
+  const autosaveRef = useRef<() => void>(() => {});
+  autosaveRef.current = () => {
+    if (!periodFinalized && JSON.stringify(values) !== savedSigRef.current) {
+      void savePayrollEntry(periodId, employee.id, toInput(values)).then(() => router.refresh());
+    }
+  };
+  useEffect(() => () => autosaveRef.current(), []);
+
   function onSubmit(v: FormValues) {
     startTransition(async () => {
       const res = await savePayrollEntry(periodId, employee.id, toInput(v));
@@ -113,6 +146,7 @@ export function ComputeForm({
         toast.error(res.error);
         return;
       }
+      savedSigRef.current = JSON.stringify(v);
       if (res.isNetNonPositive) {
         setSavedNonPositive(true);
         toast.warning("Saved, but net pay is ₱0 or negative — please review.");
@@ -135,19 +169,34 @@ export function ComputeForm({
           <CardHeader>
             <CardTitle className="text-base">Attendance</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="days_worked">Days worked</Label>
-              <Input id="days_worked" type="number" step="0.5" min="0" {...num("days_worked")} />
+          <CardContent className="space-y-3">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="days_worked">Days worked</Label>
+                <Input id="days_worked" type="number" step="0.5" min="0" {...num("days_worked")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="days_on_leave">Days on leave</Label>
+                <Input id="days_on_leave" type="number" step="0.5" min="0" {...num("days_on_leave")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="overtime_days">Overtime days</Label>
+                <Input id="overtime_days" type="number" step="0.5" min="0" {...num("overtime_days")} />
+                <p className="text-xs text-muted-foreground">
+                  × {formatPHP(employee.overtime_fee)}/day
+                </p>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="days_on_leave">Days on leave</Label>
-              <Input id="days_on_leave" type="number" step="0.5" min="0" {...num("days_on_leave")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="overtime_days">Overtime days</Label>
-              <Input id="overtime_days" type="number" step="0.5" min="0" {...num("overtime_days")} />
-              <p className="text-xs text-muted-foreground">× {formatPHP(employee.overtime_fee)}/day</p>
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs",
+                daysOk ? "bg-success/10 text-success" : "bg-warning/15 text-warning-foreground"
+              )}
+            >
+              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+              {daysOk
+                ? `Days worked + leave = ${daysEntered} of ${expectedDays} — accounts for the whole period.`
+                : `Days worked + leave = ${daysEntered}, but this pay period is ${expectedDays} days. Adjust to finalize (a draft can still be saved).`}
             </div>
           </CardContent>
         </Card>
@@ -203,9 +252,24 @@ export function ComputeForm({
               </div>
             )}
 
-            {advances.length > 0 && (
+            {(advances.length > 0 || !periodFinalized) && (
               <div>
-                <p className="mb-2 text-sm font-semibold text-muted-foreground">Advances</p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-muted-foreground">Advances</p>
+                  {!periodFinalized && advances.length < MAX_ADVANCES && (
+                    <AdvanceDialog
+                      employeeId={employee.id}
+                      trigger={
+                        <Button type="button" variant="outline" size="sm">
+                          <Plus className="h-3.5 w-3.5" /> Add advance
+                        </Button>
+                      }
+                    />
+                  )}
+                </div>
+                {advances.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No active advances.</p>
+                )}
                 <div className="space-y-3">
                   {advances.map((a) => (
                     <div key={a.id} className="flex items-center gap-3">
