@@ -71,9 +71,11 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
   const daysWorked = Math.max(0, inputs.daysWorked || 0);
   const overtimeDays = Math.max(0, inputs.overtimeDays || 0);
 
+  // Food allowance is paid on regular (non-overtime) days: days_worked − overtime_days.
+  const foodDays = Math.max(0, daysWorked - overtimeDays);
   const totalFoodAllowanceCentavos = multiplyCentavos(
     nonNeg(rates.foodAllowancePerDayCentavos),
-    daysWorked
+    foodDays
   );
   const totalSleepAllowanceCentavos = multiplyCentavos(
     nonNeg(rates.sleepAllowancePerDayCentavos),

@@ -48,6 +48,8 @@ export async function saveLoan(employeeId: string, raw: LoanInput): Promise<Resu
   });
 
   revalidatePath(`/employees/${employeeId}`);
+  // A loan/advance added mid-run must show up in any open payroll compute page.
+  revalidatePath("/payroll", "layout");
   revalidatePath("/");
   return { ok: true };
 }
@@ -76,6 +78,8 @@ export async function clearLoan(employeeId: string, loanType: "SSS" | "PAGIBIG")
   });
 
   revalidatePath(`/employees/${employeeId}`);
+  // A loan/advance added mid-run must show up in any open payroll compute page.
+  revalidatePath("/payroll", "layout");
   return { ok: true };
 }
 
@@ -115,6 +119,8 @@ export async function createAdvance(employeeId: string, raw: AdvanceInput): Prom
   });
 
   revalidatePath(`/employees/${employeeId}`);
+  // A loan/advance added mid-run must show up in any open payroll compute page.
+  revalidatePath("/payroll", "layout");
   revalidatePath("/");
   return { ok: true };
 }
@@ -153,6 +159,8 @@ export async function updateAdvance(
   });
 
   revalidatePath(`/employees/${employeeId}`);
+  // A loan/advance added mid-run must show up in any open payroll compute page.
+  revalidatePath("/payroll", "layout");
   revalidatePath("/");
   return { ok: true };
 }
@@ -177,6 +185,8 @@ export async function deleteAdvance(advanceId: string, employeeId: string): Prom
   });
 
   revalidatePath(`/employees/${employeeId}`);
+  // A loan/advance added mid-run must show up in any open payroll compute page.
+  revalidatePath("/payroll", "layout");
   revalidatePath("/");
   return { ok: true };
 }

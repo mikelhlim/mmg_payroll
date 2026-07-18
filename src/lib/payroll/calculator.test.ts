@@ -45,7 +45,21 @@ describe("computePayroll — earnings", () => {
       ...noDeductions,
     });
     expect(r.overtimeAmountCentavos).toBe(toCentavos(300)); // 2 × 150
-    expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4740)); // 4440 + 300
+    // Food is paid on regular days only: (6 − 2) × 80 = 320.
+    expect(r.totalFoodAllowanceCentavos).toBe(toCentavos(320));
+    // base 3660 + food 320 + sleep 300 = 4280; + OT 300 = 4580.
+    expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4580));
+  });
+
+  it("pays food allowance only on non-overtime days (worked − overtime)", () => {
+    const r = computePayroll(rates, {
+      daysWorked: 5,
+      daysOnLeave: 0,
+      overtimeDays: 2,
+      ...noDeductions,
+    });
+    expect(r.totalFoodAllowanceCentavos).toBe(toCentavos(240)); // (5 − 2) × 80
+    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(250)); // sleep unaffected: 5 × 50
   });
 
   it("does not pay leave days — only days worked are paid", () => {
@@ -84,12 +98,13 @@ describe("computePayroll — deductions & net", () => {
       pagibigLoanPaymentCentavos: toCentavos(150),
       advancePaymentsCentavos: [toCentavos(250), toCentavos(100)],
     });
-    expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4590)); // 4440 + 150
+    // food = (6 − 1) × 80 = 400; base 3660 + 400 + sleep 300 = 4360; + OT 150 = 4510.
+    expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4510));
     expect(r.totalContributionsCentavos).toBe(toCentavos(325)); // 135+100+90
     expect(r.totalLoanPaymentsCentavos).toBe(toCentavos(350)); // 200+150
     expect(r.totalAdvanceDeductionCentavos).toBe(toCentavos(350)); // 250+100
     expect(r.totalDeductionsCentavos).toBe(toCentavos(1025));
-    expect(r.netWeeklyPayCentavos).toBe(toCentavos(3565)); // 4590 - 1025
+    expect(r.netWeeklyPayCentavos).toBe(toCentavos(3485)); // 4510 - 1025
     expect(r.isNetNonPositive).toBe(false);
   });
 

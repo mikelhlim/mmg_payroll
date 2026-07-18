@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PayDay — HR & Payroll",
+  title: "MMG HR and Payroll System",
   description:
     "Weekly HR and payroll computation: employee profiles, advances, loans, and payslips.",
 };

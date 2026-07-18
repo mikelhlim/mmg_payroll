@@ -53,7 +53,10 @@ export function Nav({ isAdmin, userEmail }: { isAdmin: boolean; userEmail: strin
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/30">
               <Wallet className="h-5 w-5" />
             </span>
-            <span className="text-lg tracking-tight">PayDay</span>
+            <span className="tracking-tight sm:hidden">MMG Payroll</span>
+            <span className="hidden text-base leading-tight tracking-tight sm:inline">
+              MMG HR and Payroll System
+            </span>
           </Link>
 
           {/* Desktop links */}

@@ -144,6 +144,12 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
             <div>
               <p className="text-xs text-muted-foreground">SSS loan balance</p>
               <p className="text-lg font-bold tabular-nums">{formatPHP(sssLoan?.current_balance ?? 0)}</p>
+              {sssLoan && (
+                <p className="text-[11px] text-muted-foreground">
+                  of {formatPHP(sssLoan.principal)}
+                  {sssLoan.start_date ? ` · since ${sssLoan.start_date}` : ""}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -155,6 +161,12 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
             <div>
               <p className="text-xs text-muted-foreground">Pag-IBIG loan balance</p>
               <p className="text-lg font-bold tabular-nums">{formatPHP(pagibigLoan?.current_balance ?? 0)}</p>
+              {pagibigLoan && (
+                <p className="text-[11px] text-muted-foreground">
+                  of {formatPHP(pagibigLoan.principal)}
+                  {pagibigLoan.start_date ? ` · since ${pagibigLoan.start_date}` : ""}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -166,6 +178,12 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
             <div>
               <p className="text-xs text-muted-foreground">Advances balance</p>
               <p className="text-lg font-bold tabular-nums">{formatPHP(advancesBalance)}</p>
+              {advances.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {advances.length} advance{advances.length === 1 ? "" : "s"} · of{" "}
+                  {formatPHP(advances.reduce((s, a) => s + a.total_advance, 0))}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -23,8 +23,8 @@ export default function LoginPage() {
             <Wallet className="h-7 w-7" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">PayDay</h1>
-            <p className="text-sm text-muted-foreground">HR &amp; Payroll — sign in to continue</p>
+            <h1 className="text-xl font-bold tracking-tight">MMG HR and Payroll System</h1>
+            <p className="text-sm text-muted-foreground">Sign in to continue</p>
           </div>
         </div>
 

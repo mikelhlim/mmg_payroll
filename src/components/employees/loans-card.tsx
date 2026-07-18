@@ -66,7 +66,8 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
         <p className="font-medium">{LABELS[type]}</p>
         {loan && (
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-            Balance {formatPHP(loan.current_balance)}
+            Balance {formatPHP(loan.current_balance)} of {formatPHP(loan.principal)}
+            {loan.start_date ? ` · since ${loan.start_date}` : ""}
           </span>
         )}
       </div>
