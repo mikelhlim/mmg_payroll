@@ -1,0 +1,302 @@
+"use client";
+
+import { useTransition } from "react";
+import { useForm, Controller, type UseFormRegisterReturn } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { employeeSchema, employeeDefaults, type EmployeeInput } from "@/lib/validation/employee";
+import { createEmployee, updateEmployee } from "@/lib/actions/employees";
+import type { Employee } from "@/lib/types";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
+
+function toFormValues(e?: Employee): EmployeeInput {
+  if (!e) return employeeDefaults;
+  return {
+    first_name: e.first_name,
+    last_name: e.last_name,
+    middle_name: e.middle_name ?? "",
+    nickname: e.nickname ?? "",
+    birthdate: e.birthdate ?? "",
+    employment_date: e.employment_date ?? "",
+    sss_number: e.sss_number ?? "",
+    philhealth_number: e.philhealth_number ?? "",
+    pagibig_number: e.pagibig_number ?? "",
+    daily_wage: e.daily_wage,
+    overtime_fee: e.overtime_fee,
+    food_allowance_per_day: e.food_allowance_per_day,
+    sleep_allowance_per_day: e.sleep_allowance_per_day,
+    sss_contribution: e.sss_contribution,
+    pagibig_contribution: e.pagibig_contribution,
+    philhealth_contribution: e.philhealth_contribution,
+    is_active: e.is_active,
+  };
+}
+
+function Field({
+  label,
+  htmlFor,
+  error,
+  children,
+  hint,
+}: {
+  label: string;
+  htmlFor: string;
+  error?: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+      {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function MoneyInput({
+  id,
+  suffix,
+  registration,
+}: {
+  id: string;
+  suffix?: string;
+  registration: UseFormRegisterReturn;
+}) {
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+        ₱
+      </span>
+      <Input
+        id={id}
+        type="number"
+        step="0.01"
+        min="0"
+        inputMode="decimal"
+        className="pl-7"
+        {...registration}
+      />
+      {suffix && (
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          {suffix}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function EmployeeForm({ employee }: { employee?: Employee }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const isEdit = Boolean(employee);
+
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = useForm<EmployeeInput>({
+    resolver: zodResolver(employeeSchema),
+    defaultValues: toFormValues(employee),
+  });
+
+  function onSubmit(values: EmployeeInput) {
+    startTransition(async () => {
+      const res = isEdit
+        ? await updateEmployee(employee!.id, values)
+        : await createEmployee(values);
+      if ("error" in res) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(isEdit ? "Employee updated." : "Employee added.");
+      router.push(isEdit ? `/employees/${res.id}` : "/employees");
+      router.refresh();
+    });
+  }
+
+  const money = (name: keyof EmployeeInput) => register(name, { valueAsNumber: true });
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <Tabs defaultValue="profile">
+        <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="compensation">Compensation</TabsTrigger>
+        </TabsList>
+
+        {/* Profile */}
+        <TabsContent value="profile" className="mt-4">
+          <Card>
+            <CardContent className="grid gap-5 p-5 sm:grid-cols-2">
+              <Field label="First name" htmlFor="first_name" error={errors.first_name?.message}>
+                <Input id="first_name" {...register("first_name")} />
+              </Field>
+              <Field label="Last name" htmlFor="last_name" error={errors.last_name?.message}>
+                <Input id="last_name" {...register("last_name")} />
+              </Field>
+              <Field label="Middle name" htmlFor="middle_name" error={errors.middle_name?.message}>
+                <Input id="middle_name" {...register("middle_name")} />
+              </Field>
+              <Field label="Nickname" htmlFor="nickname" error={errors.nickname?.message}>
+                <Input id="nickname" {...register("nickname")} />
+              </Field>
+              <Field label="Birthdate" htmlFor="birthdate" error={errors.birthdate?.message}>
+                <Input id="birthdate" type="date" {...register("birthdate")} />
+              </Field>
+              <Field
+                label="Employment date"
+                htmlFor="employment_date"
+                error={errors.employment_date?.message}
+              >
+                <Input id="employment_date" type="date" {...register("employment_date")} />
+              </Field>
+
+              <div className="sm:col-span-2">
+                <p className="mb-3 mt-1 text-sm font-semibold text-muted-foreground">
+                  Government IDs
+                </p>
+                <div className="grid gap-5 sm:grid-cols-3">
+                  <Field label="SSS number" htmlFor="sss_number" error={errors.sss_number?.message}>
+                    <Input id="sss_number" {...register("sss_number")} />
+                  </Field>
+                  <Field
+                    label="PhilHealth number"
+                    htmlFor="philhealth_number"
+                    error={errors.philhealth_number?.message}
+                  >
+                    <Input id="philhealth_number" {...register("philhealth_number")} />
+                  </Field>
+                  <Field
+                    label="Pag-IBIG number"
+                    htmlFor="pagibig_number"
+                    error={errors.pagibig_number?.message}
+                  >
+                    <Input id="pagibig_number" {...register("pagibig_number")} />
+                  </Field>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Compensation */}
+        <TabsContent value="compensation" className="mt-4">
+          <Card>
+            <CardContent className="grid gap-5 p-5 sm:grid-cols-2">
+              <Field
+                label="Daily wage"
+                htmlFor="daily_wage"
+                error={errors.daily_wage?.message}
+                hint="Base pay per day worked"
+              >
+                <MoneyInput id="daily_wage" suffix="/day" registration={money("daily_wage")} />
+              </Field>
+              <Field
+                label="Overtime fee"
+                htmlFor="overtime_fee"
+                error={errors.overtime_fee?.message}
+                hint="Fixed fee per overtime day"
+              >
+                <MoneyInput id="overtime_fee" suffix="/OT day" registration={money("overtime_fee")} />
+              </Field>
+              <Field
+                label="Food allowance"
+                htmlFor="food_allowance_per_day"
+                error={errors.food_allowance_per_day?.message}
+              >
+                <MoneyInput
+                  id="food_allowance_per_day"
+                  suffix="/day"
+                  registration={money("food_allowance_per_day")}
+                />
+              </Field>
+              <Field
+                label="Sleep allowance"
+                htmlFor="sleep_allowance_per_day"
+                error={errors.sleep_allowance_per_day?.message}
+              >
+                <MoneyInput
+                  id="sleep_allowance_per_day"
+                  suffix="/day"
+                  registration={money("sleep_allowance_per_day")}
+                />
+              </Field>
+
+              <div className="sm:col-span-2">
+                <p className="mb-3 mt-1 text-sm font-semibold text-muted-foreground">
+                  Weekly government contributions (defaults, editable each payroll)
+                </p>
+                <div className="grid gap-5 sm:grid-cols-3">
+                  <Field label="SSS" htmlFor="sss_contribution" error={errors.sss_contribution?.message}>
+                    <MoneyInput id="sss_contribution" registration={money("sss_contribution")} />
+                  </Field>
+                  <Field
+                    label="Pag-IBIG"
+                    htmlFor="pagibig_contribution"
+                    error={errors.pagibig_contribution?.message}
+                  >
+                    <MoneyInput
+                      id="pagibig_contribution"
+                      registration={money("pagibig_contribution")}
+                    />
+                  </Field>
+                  <Field
+                    label="PhilHealth"
+                    htmlFor="philhealth_contribution"
+                    error={errors.philhealth_contribution?.message}
+                  >
+                    <MoneyInput
+                      id="philhealth_contribution"
+                      registration={money("philhealth_contribution")}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="sm:col-span-2">
+                <Controller
+                  control={control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <label className="flex w-fit cursor-pointer items-center gap-2.5 text-sm">
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                      <span>Active employee (included in payroll runs)</span>
+                    </label>
+                  )}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <div className="flex items-center justify-end gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => router.back()}
+          disabled={pending}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+          {isEdit ? "Save changes" : "Add employee"}
+        </Button>
+      </div>
+    </form>
+  );
+}
