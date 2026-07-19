@@ -130,7 +130,9 @@ function AddUserDialog() {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue>
+                        {(v: "admin" | "staff") => (v === "admin" ? "Admin" : "Staff")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="staff">Staff — process payroll, manage employees</SelectItem>

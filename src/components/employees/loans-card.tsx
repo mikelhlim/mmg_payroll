@@ -22,10 +22,13 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
+  const isNew = !loan;
+
   const {
     register,
     handleSubmit,
-    formState: { errors, isDirty },
+    setValue,
+    formState: { errors, isDirty, dirtyFields },
   } = useForm<LoanInput>({
     resolver: zodResolver(loanSchema),
     defaultValues: {
@@ -33,6 +36,17 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
       principal: loan?.principal ?? 0,
       current_balance: loan?.current_balance ?? 0,
       start_date: loan?.start_date ?? "",
+    },
+  });
+
+  // A freshly-added loan's outstanding balance is its principal — keep them in
+  // sync as the user types, unless they've manually edited the balance field.
+  // (Editing an existing loan never auto-syncs; balance is independent there.)
+  const principalRegistration = register("principal", {
+    valueAsNumber: true,
+    onChange: (e) => {
+      if (!isNew || dirtyFields.current_balance) return;
+      setValue("current_balance", Number(e.target.value) || 0, { shouldDirty: false });
     },
   });
 
@@ -75,7 +89,7 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor={`${type}-principal`}>Principal</Label>
-          <MoneyInput id={`${type}-principal`} {...register("principal", { valueAsNumber: true })} />
+          <MoneyInput id={`${type}-principal`} {...principalRegistration} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor={`${type}-balance`}>Current balance</Label>
@@ -83,6 +97,9 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
             id={`${type}-balance`}
             {...register("current_balance", { valueAsNumber: true })}
           />
+          {isNew && !dirtyFields.current_balance && (
+            <p className="text-xs text-muted-foreground">Defaults to principal</p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor={`${type}-start`}>Start date</Label>
