@@ -1,19 +1,29 @@
 "use client";
 
-import { useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useForm, Controller, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { employeeSchema, employeeDefaults, type EmployeeInput } from "@/lib/validation/employee";
 import { createEmployee, updateEmployee } from "@/lib/actions/employees";
-import type { Employee } from "@/lib/types";
+import type { Advance, Employee, Loan } from "@/lib/types";
+import { LoansCard } from "@/components/employees/loans-card";
+import { AdvancesCard } from "@/components/employees/advances-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 
 function toFormValues(e?: Employee): EmployeeInput {
@@ -94,7 +104,28 @@ function MoneyInput({
   );
 }
 
-export function EmployeeForm({ employee }: { employee?: Employee }) {
+// Internal same-origin links only — external/mailto/tel/new-tab/download links
+// are left to the browser as normal.
+function isGuardableAnchor(a: HTMLAnchorElement): boolean {
+  const href = a.getAttribute("href");
+  if (!href || href.startsWith("#")) return false;
+  if (/^([a-z]+:)?\/\//i.test(href) || href.startsWith("mailto:") || href.startsWith("tel:")) {
+    return false;
+  }
+  if (a.target && a.target !== "_self") return false;
+  if (a.hasAttribute("download")) return false;
+  return true;
+}
+
+export function EmployeeForm({
+  employee,
+  loans = [],
+  advances = [],
+}: {
+  employee?: Employee;
+  loans?: Loan[];
+  advances?: Advance[];
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const isEdit = Boolean(employee);
@@ -103,31 +134,103 @@ export function EmployeeForm({ employee }: { employee?: Employee }) {
     register,
     handleSubmit,
     control,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<EmployeeInput>({
     resolver: zodResolver(employeeSchema),
     defaultValues: toFormValues(employee),
   });
 
+  // Unsaved-changes guard: intercept clicks on other in-app links (nav bar,
+  // mobile tab bar, breadcrumbs, etc.) while the form is dirty, and offer to
+  // save or discard before leaving. A ref keeps the listener reading the
+  // latest dirty state without re-registering on every keystroke.
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [leaveSaving, setLeaveSaving] = useState(false);
+  const pendingHrefRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    function onDocumentClick(e: MouseEvent) {
+      if (!isDirtyRef.current) return;
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = (e.target as HTMLElement | null)?.closest("a");
+      if (!anchor || !isGuardableAnchor(anchor)) return;
+      const href = anchor.getAttribute("href")!;
+      if (href === window.location.pathname) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pendingHrefRef.current = href;
+      setLeaveDialogOpen(true);
+    }
+    document.addEventListener("click", onDocumentClick, true);
+    return () => document.removeEventListener("click", onDocumentClick, true);
+  }, []);
+
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  async function performSave(values: EmployeeInput): Promise<{ id: string } | null> {
+    const res = isEdit ? await updateEmployee(employee!.id, values) : await createEmployee(values);
+    if ("error" in res) {
+      toast.error(res.error);
+      return null;
+    }
+    toast.success(isEdit ? "Employee updated." : "Employee added.");
+    return { id: res.id };
+  }
+
   function onSubmit(values: EmployeeInput) {
     startTransition(async () => {
-      const res = isEdit
-        ? await updateEmployee(employee!.id, values)
-        : await createEmployee(values);
-      if ("error" in res) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(isEdit ? "Employee updated." : "Employee added.");
-      router.push(isEdit ? `/employees/${res.id}` : "/employees");
+      const result = await performSave(values);
+      if (!result) return;
+      router.push(isEdit ? `/employees/${result.id}` : "/employees");
       router.refresh();
     });
+  }
+
+  function handleKeepEditing() {
+    setLeaveDialogOpen(false);
+    pendingHrefRef.current = null;
+  }
+
+  function handleDiscardAndLeave() {
+    const href = pendingHrefRef.current;
+    setLeaveDialogOpen(false);
+    if (href) router.push(href);
+  }
+
+  function handleSaveAndLeave() {
+    handleSubmit(
+      async (values) => {
+        setLeaveSaving(true);
+        const result = await performSave(values);
+        setLeaveSaving(false);
+        setLeaveDialogOpen(false);
+        if (!result) return;
+        const href = pendingHrefRef.current;
+        if (href) router.push(href);
+        router.refresh();
+      },
+      () => setLeaveDialogOpen(false)
+    )();
   }
 
   const money = (name: keyof EmployeeInput) => register(name, { valueAsNumber: true });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    // A plain <div>, not a <form>: the Loans/Advances cards below each render
+    // their own independent <form>, and HTML doesn't allow nested forms. Save
+    // is triggered by the button's onClick calling handleSubmit imperatively.
+    <div className="space-y-6">
       <Tabs defaultValue="profile">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
@@ -190,7 +293,7 @@ export function EmployeeForm({ employee }: { employee?: Employee }) {
         </TabsContent>
 
         {/* Compensation */}
-        <TabsContent value="compensation" className="mt-4">
+        <TabsContent value="compensation" className="mt-4 space-y-6">
           <Card>
             <CardContent className="grid gap-5 p-5 sm:grid-cols-2">
               <Field
@@ -280,23 +383,59 @@ export function EmployeeForm({ employee }: { employee?: Employee }) {
               </div>
             </CardContent>
           </Card>
+
+          {isEdit && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <LoansCard employeeId={employee!.id} loans={loans} />
+              <AdvancesCard employeeId={employee!.id} advances={advances} />
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
       <div className="flex items-center justify-end gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.back()}
-          disabled={pending}
-        >
+        <Button type="button" variant="outline" onClick={() => router.back()} disabled={pending}>
           Cancel
         </Button>
-        <Button type="submit" disabled={pending}>
+        <Button type="button" onClick={handleSubmit(onSubmit)} disabled={pending}>
           {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
           {isEdit ? "Save changes" : "Add employee"}
         </Button>
       </div>
-    </form>
+
+      <Dialog
+        open={leaveDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) handleKeepEditing();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsaved changes</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes to this employee. Save them before leaving, or discard
+              them.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={handleKeepEditing} disabled={leaveSaving}>
+              Keep editing
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDiscardAndLeave}
+              disabled={leaveSaving}
+            >
+              Discard changes
+            </Button>
+            <Button type="button" onClick={handleSaveAndLeave} disabled={leaveSaving}>
+              {leaveSaving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

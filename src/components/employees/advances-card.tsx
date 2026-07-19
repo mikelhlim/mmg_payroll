@@ -54,7 +54,8 @@ export function AdvanceDialog({
     register,
     handleSubmit,
     reset,
-    formState: { errors },
+    setValue,
+    formState: { errors, dirtyFields },
   } = useForm<AdvanceInput>({
     resolver: zodResolver(advanceSchema),
     defaultValues: advance
@@ -65,6 +66,17 @@ export function AdvanceDialog({
           current_balance: advance.current_balance,
         }
       : advanceDefaults,
+  });
+
+  // A freshly-added advance's outstanding balance is its total — keep them in
+  // sync as the user types, unless they've manually edited the balance field.
+  // (Editing an existing advance never auto-syncs; balance is independent.)
+  const totalAdvanceRegistration = register("total_advance", {
+    valueAsNumber: true,
+    onChange: (e) => {
+      if (isEdit || dirtyFields.current_balance) return;
+      setValue("current_balance", Number(e.target.value) || 0, { shouldDirty: false });
+    },
   });
 
   function onSubmit(values: AdvanceInput) {
@@ -87,7 +99,16 @@ export function AdvanceDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={trigger as React.ReactElement} />
       <DialogContent>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        {/* Dialog content is portalled to document.body, but React still
+            bubbles synthetic events up the COMPONENT tree — stopPropagation
+            keeps this submit from also triggering an ancestor <form> (e.g.
+            ComputeForm) that this dialog happens to be rendered inside of. */}
+        <form
+          onSubmit={(e) => {
+            e.stopPropagation();
+            handleSubmit(onSubmit)(e);
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit advance" : "Add advance"}</DialogTitle>
             <DialogDescription>
@@ -102,7 +123,7 @@ export function AdvanceDialog({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="adv-total">Total advance</Label>
-                <MoneyInput id="adv-total" {...register("total_advance", { valueAsNumber: true })} />
+                <MoneyInput id="adv-total" {...totalAdvanceRegistration} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="adv-balance">Current balance</Label>
@@ -110,6 +131,9 @@ export function AdvanceDialog({
                   id="adv-balance"
                   {...register("current_balance", { valueAsNumber: true })}
                 />
+                {!isEdit && !dirtyFields.current_balance && (
+                  <p className="text-xs text-muted-foreground">Defaults to total advance</p>
+                )}
               </div>
             </div>
             <div className="space-y-1.5">

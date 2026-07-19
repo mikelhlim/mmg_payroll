@@ -75,7 +75,13 @@ function LoanRow({ employeeId, type, loan }: { employeeId: string; type: LoanTyp
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="rounded-xl border p-4">
+    <form
+      onSubmit={(e) => {
+        e.stopPropagation();
+        handleSubmit(onSubmit)(e);
+      }}
+      className="rounded-xl border p-4"
+    >
       <div className="mb-3 flex items-center justify-between">
         <p className="font-medium">{LABELS[type]}</p>
         {loan && (

@@ -26,6 +26,7 @@ import {
   CalendarClock,
   Loader2,
   Lock,
+  Pencil,
   Plus,
   Save,
 } from "lucide-react";
@@ -333,6 +334,22 @@ export function ComputeForm({
                           {a.start_date ? ` · since ${a.start_date}` : ""}
                         </p>
                       </div>
+                      {!ro && (
+                        <AdvanceDialog
+                          employeeId={employee.id}
+                          advance={a}
+                          trigger={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Edit ${a.label ?? "advance"}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          }
+                        />
+                      )}
                       <div className="w-40">
                         <MoneyInput
                           aria-label={`Deduct from ${a.label ?? "advance"}`}

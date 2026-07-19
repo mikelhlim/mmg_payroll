@@ -97,7 +97,12 @@ function AddUserDialog() {
         <Plus className="h-4 w-4" /> Add user
       </DialogTrigger>
       <DialogContent>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form
+          onSubmit={(e) => {
+            e.stopPropagation();
+            handleSubmit(onSubmit)(e);
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Add user</DialogTitle>
             <DialogDescription>
