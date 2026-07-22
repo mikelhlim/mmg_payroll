@@ -55,11 +55,9 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
 
   const computedCount = rosterIds.filter((eid) => entryByEmployee.has(eid)).length;
   const totalNet = entries.reduce((sum, e) => sum + e.net_weekly_pay, 0);
-  // A net of exactly 0 is fine when it was explicitly resolved by covering
-  // the shortfall with a new advance; otherwise 0 or negative still blocks.
-  const anyNonPositive = entries.some(
-    (e) => e.net_weekly_pay < 0 || (e.net_weekly_pay === 0 && (e.shortfall_covered ?? 0) === 0)
-  );
+  // Net = 0 is a normal, allowed outcome; only a genuinely negative net pay
+  // blocks finalize.
+  const anyNegative = entries.some((e) => e.net_weekly_pay < 0);
   const allComputed = employees.length > 0 && employees.every((e) => entryByEmployee.has(e.id));
   const allDaysMatch =
     employees.length > 0 &&
@@ -68,7 +66,7 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
       return en ? entryDaysMatch(en) : false;
     });
   const canFinalize =
-    !finalized && allComputed && !anyNonPositive && allDaysMatch && employees.length > 0;
+    !finalized && allComputed && !anyNegative && allDaysMatch && employees.length > 0;
 
   return (
     <div className="space-y-6">
@@ -123,7 +121,7 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
               <FinalizeButton
                 periodId={id}
                 canFinalize={canFinalize}
-                anyNonPositive={anyNonPositive}
+                anyNegative={anyNegative}
                 allComputed={allComputed}
                 allDaysMatch={allDaysMatch}
               />
@@ -141,10 +139,10 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
             <p className="text-3xl font-bold tabular-nums text-primary">{formatPHP(totalNet)}</p>
           </div>
           <div className="space-y-2">
-            {anyNonPositive && !finalized && (
+            {anyNegative && !finalized && (
               <p className="flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
                 <AlertTriangle className="h-4 w-4 shrink-0" />
-                One or more employees have net pay ≤ ₱0. Resolve before finalizing.
+                One or more employees have negative net pay. Resolve before finalizing.
               </p>
             )}
             {!finalized && allComputed && !allDaysMatch && (
@@ -170,17 +168,14 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
           {roster.map((emp) => {
             const entry = entryByEmployee.get(emp.id);
             const computed = Boolean(entry);
-            const nonPositive = entry
-              ? entry.net_weekly_pay < 0 ||
-                (entry.net_weekly_pay === 0 && (entry.shortfall_covered ?? 0) === 0)
-              : false;
+            const negative = entry ? entry.net_weekly_pay < 0 : false;
             return (
               <Link key={emp.id} href={`/payroll/${id}/${emp.id}`}>
                 <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
                   <CardContent className="flex items-center gap-4 p-4">
                     {computed ? (
                       <CheckCircle2
-                        className={cn("h-6 w-6", nonPositive ? "text-destructive" : "text-success")}
+                        className={cn("h-6 w-6", negative ? "text-destructive" : "text-success")}
                       />
                     ) : (
                       <Circle className="h-6 w-6 text-muted-foreground/40" />
@@ -203,7 +198,7 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
                       <p
                         className={cn(
                           "font-semibold tabular-nums",
-                          nonPositive ? "text-destructive" : computed ? "text-success" : "text-muted-foreground"
+                          negative ? "text-destructive" : computed ? "text-success" : "text-muted-foreground"
                         )}
                       >
                         {computed ? formatPHP(entry!.net_weekly_pay) : "—"}

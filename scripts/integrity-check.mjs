@@ -32,14 +32,41 @@ for (const e of entries) {
   const allocSum = (e.advance_allocations ?? []).reduce((s, a) => s + Number(a.amount), 0);
   if (!near(allocSum, e.total_advance_deduction))
     fail(`entry ${e.id}: advance_allocations sum != total_advance_deduction`);
+  // Business rules: sleep/overtime days can never exceed days worked.
+  if (Number(e.sleep_days) > Number(e.days_worked))
+    fail(`entry ${e.id}: sleep_days (${e.sleep_days}) > days_worked (${e.days_worked})`);
+  if (Number(e.overtime_days) > Number(e.days_worked))
+    fail(`entry ${e.id}: overtime_days (${e.overtime_days}) > days_worked (${e.days_worked})`);
 }
 
 // 2) Balances never negative.
-const { data: loans } = await c.from("loans").select("id,current_balance");
+const { data: loans } = await c
+  .from("loans")
+  .select("id,employee_id,loan_type,principal,current_balance");
 const { data: advances } = await c.from("advances").select("id,current_balance");
 for (const l of loans) if (Number(l.current_balance) < 0) fail(`loan ${l.id} negative balance`);
 for (const a of advances)
   if (Number(a.current_balance) < 0) fail(`advance ${a.id} negative balance`);
+
+// 2b) A loan repayment can never exceed the loan's original principal
+//     (checked against principal, not current balance, since balance moves
+//     over time but principal is fixed — this is the only retroactively
+//     valid comparison for historical entries).
+const loanByEmpType = new Map(loans.map((l) => [`${l.employee_id}|${l.loan_type}`, l]));
+for (const e of entries) {
+  if (Number(e.sss_loan_payment) > 0) {
+    const l = loanByEmpType.get(`${e.employee_id}|SSS`);
+    if (l && Number(e.sss_loan_payment) > Number(l.principal))
+      fail(`entry ${e.id}: sss_loan_payment (${e.sss_loan_payment}) > principal (${l.principal})`);
+  }
+  if (Number(e.pagibig_loan_payment) > 0) {
+    const l = loanByEmpType.get(`${e.employee_id}|PAGIBIG`);
+    if (l && Number(e.pagibig_loan_payment) > Number(l.principal))
+      fail(
+        `entry ${e.id}: pagibig_loan_payment (${e.pagibig_loan_payment}) > principal (${l.principal})`
+      );
+  }
+}
 
 // 3) The most recent payment's balance_after must equal the obligation's
 //    current balance (payment history reconciles with the live balance).

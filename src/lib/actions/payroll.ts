@@ -124,7 +124,7 @@ export async function deletePeriod(id: string): Promise<{ error: string } | { ok
 
 export type SaveEntryResult =
   | { error: string }
-  | { ok: true; netWeeklyPay: number; isNetNonPositive: boolean };
+  | { ok: true; netWeeklyPay: number; isNetNegative: boolean };
 
 export async function savePayrollEntry(
   periodId: string,
@@ -199,20 +199,22 @@ export async function savePayrollEntry(
   return {
     ok: true,
     netWeeklyPay: row.net_weekly_pay,
-    isNetNonPositive: row.net_weekly_pay <= 0,
+    isNetNegative: row.net_weekly_pay < 0,
   };
 }
 
-export type CoverShortfallResult = { error: string } | { ok: true; shortfall: number };
+export type CoverShortfallResult =
+  | { error: string }
+  | { ok: true; shortfall: number; foldedIntoExisting: boolean };
 
 /**
- * Resolve a negative net pay by issuing a new advance for the exact shortfall:
- * the company effectively fronts the difference, the employee's net for this
- * period becomes ₱0 (not negative), and the shortfall becomes a normal advance
- * balance to be repaid via ordinary deductions in this or future periods.
- * Genuinely negative net pay always blocks finalize; this is the resolution
- * path — finalize allows the resulting net = 0 specifically because
- * shortfall_covered > 0 (see finalize_payroll_period()).
+ * Resolve a negative net pay by issuing a new advance for the exact shortfall
+ * (or, if the employee is already at the MAX_ADVANCES cap, folding it into
+ * their most-recently-created advance instead): the company effectively
+ * fronts the difference, the employee's net for this period becomes ₱0 (not
+ * negative), and the shortfall becomes a normal advance balance repaid via
+ * ordinary deductions in this or future periods. Only a genuinely negative
+ * net pay blocks finalize — net = 0 is always fine either way.
  */
 export async function coverShortfallWithAdvance(
   periodId: string,
@@ -243,11 +245,6 @@ export async function coverShortfallWithAdvance(
   if (!employee) return { error: "Employee not found." };
 
   const activeAdvances = (advanceRows ?? []) as Advance[];
-  if (activeAdvances.length >= MAX_ADVANCES) {
-    return {
-      error: `Can't cover the shortfall — already at the ${MAX_ADVANCES}-advance limit. Remove or pay off an existing advance first.`,
-    };
-  }
 
   const { row } = buildEntryRow(
     employee as Employee,
@@ -260,14 +257,34 @@ export async function coverShortfallWithAdvance(
   }
   const shortfall = Math.abs(row.net_weekly_pay);
 
-  const { error: advanceError } = await supabase.from("advances").insert({
-    employee_id: employeeId,
-    label: `Net pay shortfall (${formatPeriod(period.period_start, period.period_end)})`,
-    start_date: period.period_start,
-    total_advance: shortfall,
-    current_balance: shortfall,
-  });
-  if (advanceError) return { error: advanceError.message };
+  // At the 5-advance cap, fold the shortfall into the most recently created
+  // advance instead of opening a 6th (the DB also hard-enforces the cap).
+  const mostRecent =
+    activeAdvances.length >= MAX_ADVANCES
+      ? [...activeAdvances].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0]
+      : null;
+
+  if (mostRecent) {
+    const { error: topUpError } = await supabase
+      .from("advances")
+      .update({
+        total_advance: mostRecent.total_advance + shortfall,
+        current_balance: mostRecent.current_balance + shortfall,
+      })
+      .eq("id", mostRecent.id);
+    if (topUpError) return { error: topUpError.message };
+  } else {
+    const { error: advanceError } = await supabase.from("advances").insert({
+      employee_id: employeeId,
+      label: `Net pay shortfall (${formatPeriod(period.period_start, period.period_end)})`,
+      start_date: period.period_start,
+      total_advance: shortfall,
+      current_balance: shortfall,
+    });
+    if (advanceError) return { error: advanceError.message };
+  }
 
   const { error: entryError } = await supabase.from("payroll_entries").upsert(
     { period_id: periodId, employee_id: employeeId, ...row, net_weekly_pay: 0, shortfall_covered: shortfall },
@@ -279,16 +296,20 @@ export async function coverShortfallWithAdvance(
     action: "update",
     entity: "payroll_entry",
     entity_id: employeeId,
-    summary: `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
-      employee as Employee
-    )} with a new advance (${formatPeriod(period.period_start, period.period_end)})`,
-    details: { shortfall },
+    summary: mostRecent
+      ? `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
+          employee as Employee
+        )} by adding it to their "${mostRecent.label ?? "existing"}" advance (already at the ${MAX_ADVANCES}-advance limit; ${formatPeriod(period.period_start, period.period_end)})`
+      : `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
+          employee as Employee
+        )} with a new advance (${formatPeriod(period.period_start, period.period_end)})`,
+    details: { shortfall, foldedIntoAdvanceId: mostRecent?.id ?? null },
   });
 
   revalidatePath(`/payroll/${periodId}`);
   revalidatePath(`/employees/${employeeId}`);
   revalidatePath("/");
-  return { ok: true, shortfall };
+  return { ok: true, shortfall, foldedIntoExisting: Boolean(mostRecent) };
 }
 
 export async function finalizePeriod(id: string): Promise<{ error: string } | { ok: true }> {

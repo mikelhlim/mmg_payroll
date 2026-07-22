@@ -21,13 +21,13 @@ import { Lock, Loader2 } from "lucide-react";
 export function FinalizeButton({
   periodId,
   canFinalize,
-  anyNonPositive,
+  anyNegative,
   allComputed,
   allDaysMatch = true,
 }: {
   periodId: string;
   canFinalize: boolean;
-  anyNonPositive: boolean;
+  anyNegative: boolean;
   allComputed: boolean;
   allDaysMatch?: boolean;
 }) {
@@ -38,8 +38,8 @@ export function FinalizeButton({
     ? "Compute every employee first"
     : !allDaysMatch
       ? "Days worked + leave must equal the period length for everyone"
-      : anyNonPositive
-        ? "Resolve net pay ≤ ₱0 first"
+      : anyNegative
+        ? "Resolve negative net pay first"
         : "";
 
   if (!canFinalize) {

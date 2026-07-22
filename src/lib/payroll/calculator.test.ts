@@ -35,7 +35,7 @@ describe("computePayroll — earnings", () => {
     expect(r.overtimeAmountCentavos).toBe(0);
     expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4440));
     expect(r.netWeeklyPayCentavos).toBe(toCentavos(4440));
-    expect(r.isNetNonPositive).toBe(false);
+    expect(r.isNetNegative).toBe(false);
   });
 
   it("sleep days are independent of days worked (can differ)", () => {
@@ -119,10 +119,10 @@ describe("computePayroll — deductions & net", () => {
     expect(r.totalAdvanceDeductionCentavos).toBe(toCentavos(350)); // 250+100
     expect(r.totalDeductionsCentavos).toBe(toCentavos(700));
     expect(r.netWeeklyPayCentavos).toBe(toCentavos(3810)); // 4510 - 700
-    expect(r.isNetNonPositive).toBe(false);
+    expect(r.isNetNegative).toBe(false);
   });
 
-  it("flags net ≤ 0 so the UI can alert and block finalize", () => {
+  it("flags a genuinely negative net so the UI can alert and block finalize", () => {
     const r = computePayroll(rates, {
       daysWorked: 1,
       daysOnLeave: 0,
@@ -131,11 +131,11 @@ describe("computePayroll — deductions & net", () => {
       ...noDeductions,
       sssLoanPaymentCentavos: toCentavos(5000), // wipes out the small week
     });
-    expect(r.netWeeklyPayCentavos).toBeLessThanOrEqual(0);
-    expect(r.isNetNonPositive).toBe(true);
+    expect(r.netWeeklyPayCentavos).toBeLessThan(0);
+    expect(r.isNetNegative).toBe(true);
   });
 
-  it("treats exactly-zero net as non-positive (alert)", () => {
+  it("treats exactly-zero net as fine — only a negative net is flagged", () => {
     const r = computePayroll(rates, {
       daysWorked: 1,
       daysOnLeave: 0,
@@ -146,7 +146,7 @@ describe("computePayroll — deductions & net", () => {
       sssLoanPaymentCentavos: toCentavos(740),
     });
     expect(r.netWeeklyPayCentavos).toBe(0);
-    expect(r.isNetNonPositive).toBe(true);
+    expect(r.isNetNegative).toBe(false);
   });
 
   it("never lets negative inputs increase pay", () => {

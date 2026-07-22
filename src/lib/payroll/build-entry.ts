@@ -45,8 +45,18 @@ export function buildEntryRow(
 ): { row: EntryRow; result: PayrollResult } {
   const sssLoan = loans.find((l) => l.loan_type === "SSS");
   const pagibigLoan = loans.find((l) => l.loan_type === "PAGIBIG");
-  const sssLoanPay = Math.min(input.sss_loan_payment, sssLoan?.current_balance ?? 0);
-  const pagibigLoanPay = Math.min(input.pagibig_loan_payment, pagibigLoan?.current_balance ?? 0);
+  // A repayment can never exceed the loan's remaining balance or its
+  // original principal (defense in depth — see trg_loan_payment_caps).
+  const sssLoanPay = Math.min(
+    input.sss_loan_payment,
+    sssLoan?.current_balance ?? 0,
+    sssLoan?.principal ?? 0
+  );
+  const pagibigLoanPay = Math.min(
+    input.pagibig_loan_payment,
+    pagibigLoan?.current_balance ?? 0,
+    pagibigLoan?.principal ?? 0
+  );
 
   const advById = new Map(advances.map((a) => [a.id, a]));
   const allocations = input.advance_allocations

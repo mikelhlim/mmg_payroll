@@ -16,6 +16,9 @@
  *   Leave is unpaid (only days worked are paid); leave days are tracked
  *   for reporting but never enter the pay math. Statutory government
  *   contributions are not modeled — the client no longer collects them.
+ *   sleep_days and overtime_days can never exceed days_worked (enforced by
+ *   the caller — see validation/payroll.ts and the DB CHECK constraints).
+ *   net_weekly_pay = 0 is a normal, allowed outcome; only < 0 blocks finalize.
  */
 import { multiplyCentavos, sumCentavos } from "@/lib/money";
 
@@ -60,8 +63,8 @@ export interface PayrollResult {
   totalAdvanceDeductionCentavos: number;
   totalDeductionsCentavos: number;
   netWeeklyPayCentavos: number;
-  /** True when net ≤ 0 — the UI must alert and block finalize. */
-  isNetNonPositive: boolean;
+  /** True when net < 0 — the UI must alert and block finalize. Net = 0 is fine. */
+  isNetNegative: boolean;
 }
 
 const nonNeg = (n: number) => Math.max(0, Math.round(n || 0));
@@ -114,6 +117,6 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
     totalAdvanceDeductionCentavos,
     totalDeductionsCentavos,
     netWeeklyPayCentavos,
-    isNetNonPositive: netWeeklyPayCentavos <= 0,
+    isNetNegative: netWeeklyPayCentavos < 0,
   };
 }

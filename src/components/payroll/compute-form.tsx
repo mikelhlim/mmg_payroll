@@ -116,7 +116,7 @@ export function ComputeForm({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [savedNonPositive, setSavedNonPositive] = useState(false);
+  const [savedNegative, setSavedNegative] = useState(false);
   const [coveringShortfall, setCoveringShortfall] = useState(false);
   const ro = periodFinalized; // read-only
 
@@ -193,11 +193,11 @@ export function ComputeForm({
       }
       savedSigRef.current = JSON.stringify(v);
       setShortfallState(null);
-      if (res.isNetNonPositive) {
-        setSavedNonPositive(true);
-        toast.warning("Saved, but net pay is ₱0 or negative — please review.");
+      if (res.isNetNegative) {
+        setSavedNegative(true);
+        toast.warning("Saved, but net pay is negative — please review.");
       } else {
-        setSavedNonPositive(false);
+        setSavedNegative(false);
         toast.success(`Saved — net ${formatPHP(res.netWeeklyPay)}.`);
       }
       router.refresh();
@@ -213,7 +213,11 @@ export function ComputeForm({
       toast.error(res.error);
       return;
     }
-    toast.success(`Covered a ${formatPHP(res.shortfall)} shortfall with a new advance.`);
+    toast.success(
+      res.foldedIntoExisting
+        ? `Covered a ${formatPHP(res.shortfall)} shortfall by adding it to an existing advance (5-advance limit reached).`
+        : `Covered a ${formatPHP(res.shortfall)} shortfall with a new advance.`
+    );
     savedSigRef.current = JSON.stringify(values);
     setShortfallState({ amount: res.shortfall, valuesSig: JSON.stringify(values) });
     router.refresh();
@@ -223,6 +227,7 @@ export function ComputeForm({
 
   // Days worked auto-fills leave = period days − worked, and defaults sleep
   // days to match days worked (both stay independently editable afterward).
+  // Neither sleep days nor overtime days may ever exceed days worked.
   const daysWorkedReg = register("days_worked", {
     valueAsNumber: true,
     disabled: ro,
@@ -231,8 +236,56 @@ export function ComputeForm({
       const w = Number(e.target.value) || 0;
       setValue("days_on_leave", Math.max(0, expectedDays - w), { shouldDirty: true });
       setValue("sleep_days", w, { shouldDirty: true });
+      if ((Number(values.overtime_days) || 0) > w) {
+        setValue("overtime_days", w, { shouldDirty: true });
+      }
     },
   });
+  const sleepDaysReg = register("sleep_days", {
+    valueAsNumber: true,
+    disabled: ro,
+    onChange: (e) => {
+      if (ro) return;
+      const w = Number(values.days_worked) || 0;
+      if ((Number(e.target.value) || 0) > w) setValue("sleep_days", w, { shouldDirty: true });
+    },
+  });
+  const overtimeDaysReg = register("overtime_days", {
+    valueAsNumber: true,
+    disabled: ro,
+    onChange: (e) => {
+      if (ro) return;
+      const w = Number(values.days_worked) || 0;
+      if ((Number(e.target.value) || 0) > w) setValue("overtime_days", w, { shouldDirty: true });
+    },
+  });
+
+  // A loan repayment or advance deduction can never exceed its balance (loans
+  // are additionally capped at their original principal).
+  const loanPaymentReg = (type: LoanType, loan: Loan | undefined) => {
+    const cap = loan ? Math.min(loan.current_balance, loan.principal) : 0;
+    return register(loanFieldByType[type], {
+      valueAsNumber: true,
+      disabled: ro,
+      onChange: (e) => {
+        if (ro) return;
+        if ((Number(e.target.value) || 0) > cap) {
+          setValue(loanFieldByType[type], cap, { shouldDirty: true });
+        }
+      },
+    });
+  };
+  const advancePaymentReg = (a: Advance) =>
+    register(`advances.${a.id}` as const, {
+      valueAsNumber: true,
+      disabled: ro,
+      onChange: (e) => {
+        if (ro) return;
+        if ((Number(e.target.value) || 0) > a.current_balance) {
+          setValue(`advances.${a.id}` as const, a.current_balance, { shouldDirty: true });
+        }
+      },
+    });
 
   // Display helpers for the formula labels.
   const dw = Number(values.days_worked) || 0;
@@ -249,8 +302,9 @@ export function ComputeForm({
   const shortfallCoveredNow = ro ? (entry?.shortfall_covered ?? 0) > 0 : shortfallState !== null;
   const shortfallAmountShown = ro ? (entry?.shortfall_covered ?? 0) : (shortfallState?.amount ?? 0);
   const shownNet = shortfallCoveredNow ? 0 : display.net_weekly_pay;
-  const shownNonPositive = shortfallCoveredNow ? false : shownNet <= 0;
+  const shownNegative = shortfallCoveredNow ? false : shownNet < 0;
   const canCoverShortfall = !ro && !shortfallCoveredNow && row.net_weekly_pay < 0;
+  const atAdvanceCap = advances.length >= MAX_ADVANCES;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -284,14 +338,14 @@ export function ComputeForm({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="sleep_days">Sleep days</Label>
-                <Input id="sleep_days" type="number" step="0.5" min="0" {...num("sleep_days")} />
+                <Input id="sleep_days" type="number" step="0.5" min="0" max={dw} {...sleepDaysReg} />
                 <p className="text-xs text-muted-foreground">
                   × {formatPHP(employee.sleep_allowance_per_day)}/day
                 </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="overtime_days">Overtime days</Label>
-                <Input id="overtime_days" type="number" step="0.5" min="0" {...num("overtime_days")} />
+                <Input id="overtime_days" type="number" step="0.5" min="0" max={dw} {...overtimeDaysReg} />
                 <p className="text-xs text-muted-foreground">
                   × {formatPHP(employee.overtime_fee)}/day
                 </p>
@@ -365,10 +419,7 @@ export function ComputeForm({
                             <MoneyInput
                               aria-label={`${LOAN_LABELS[type]} repayment`}
                               disabled={ro}
-                              {...register(loanFieldByType[type], {
-                                valueAsNumber: true,
-                                disabled: ro,
-                              })}
+                              {...loanPaymentReg(type, loan)}
                             />
                           </div>
                         )}
@@ -427,10 +478,7 @@ export function ComputeForm({
                         <MoneyInput
                           aria-label={`Deduct from ${a.label ?? "advance"}`}
                           disabled={ro}
-                          {...register(`advances.${a.id}` as const, {
-                            valueAsNumber: true,
-                            disabled: ro,
-                          })}
+                          {...advancePaymentReg(a)}
                         />
                       </div>
                     </div>
@@ -498,7 +546,7 @@ export function ComputeForm({
             <div
               className={cn(
                 "flex items-center justify-between rounded-xl px-3 py-2.5 text-lg font-bold",
-                shownNonPositive ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"
+                shownNegative ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"
               )}
             >
               <span>Net pay</span>
@@ -509,11 +557,11 @@ export function ComputeForm({
                 {`Resolved: a ${formatPHP(shortfallAmountShown)} advance was issued to cover this week's shortfall.`}
               </p>
             )}
-            {shownNonPositive && !ro && (
+            {shownNegative && !ro && (
               <div className="space-y-2">
                 <p className="flex items-start gap-1.5 text-xs text-destructive">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  Net pay is ₱0 or negative. Reduce deductions, or cover the shortfall with a new
+                  Net pay is negative. Reduce deductions, or cover the shortfall with a new
                   advance, before finalizing this period.
                 </p>
                 {canCoverShortfall && (
@@ -526,7 +574,9 @@ export function ComputeForm({
                       <AlertDialogHeader>
                         <AlertDialogTitle>Cover this shortfall with a new advance?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          {`This creates a new ${formatPHP(Math.abs(row.net_weekly_pay))} advance for ${employee.first_name} and sets this week's net pay to ₱0. The advance balance is repaid via normal deductions in this or future payroll runs.`}
+                          {atAdvanceCap
+                            ? `${employee.first_name} already has ${MAX_ADVANCES} active advances, so this ${formatPHP(Math.abs(row.net_weekly_pay))} shortfall is added to the most recently created one instead of opening a new advance. This sets this week's net pay to ₱0.`
+                            : `This creates a new ${formatPHP(Math.abs(row.net_weekly_pay))} advance for ${employee.first_name} and sets this week's net pay to ₱0. The advance balance is repaid via normal deductions in this or future payroll runs.`}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -580,7 +630,7 @@ export function ComputeForm({
             <span />
           )}
         </div>
-        {savedNonPositive && <span className="sr-only">Saved with non-positive net pay</span>}
+        {savedNegative && <span className="sr-only">Saved with negative net pay</span>}
       </div>
     </form>
   );
