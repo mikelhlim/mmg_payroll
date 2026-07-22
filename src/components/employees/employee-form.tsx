@@ -42,9 +42,6 @@ function toFormValues(e?: Employee): EmployeeInput {
     overtime_fee: e.overtime_fee,
     food_allowance_per_day: e.food_allowance_per_day,
     sleep_allowance_per_day: e.sleep_allowance_per_day,
-    sss_contribution: e.sss_contribution,
-    pagibig_contribution: e.pagibig_contribution,
-    philhealth_contribution: e.philhealth_contribution,
     is_active: e.is_active,
   };
 }
@@ -334,37 +331,6 @@ export function EmployeeForm({
                   registration={money("sleep_allowance_per_day")}
                 />
               </Field>
-
-              <div className="sm:col-span-2">
-                <p className="mb-3 mt-1 text-sm font-semibold text-muted-foreground">
-                  Weekly government contributions (defaults, editable each payroll)
-                </p>
-                <div className="grid gap-5 sm:grid-cols-3">
-                  <Field label="SSS" htmlFor="sss_contribution" error={errors.sss_contribution?.message}>
-                    <MoneyInput id="sss_contribution" registration={money("sss_contribution")} />
-                  </Field>
-                  <Field
-                    label="Pag-IBIG"
-                    htmlFor="pagibig_contribution"
-                    error={errors.pagibig_contribution?.message}
-                  >
-                    <MoneyInput
-                      id="pagibig_contribution"
-                      registration={money("pagibig_contribution")}
-                    />
-                  </Field>
-                  <Field
-                    label="PhilHealth"
-                    htmlFor="philhealth_contribution"
-                    error={errors.philhealth_contribution?.message}
-                  >
-                    <MoneyInput
-                      id="philhealth_contribution"
-                      registration={money("philhealth_contribution")}
-                    />
-                  </Field>
-                </div>
-              </div>
 
               <div className="sm:col-span-2">
                 <Controller

@@ -4,17 +4,18 @@
  * the payroll math and is exercised directly by calculator.test.ts.
  *
  * Business rules (confirmed with the client):
- *   total_food_allowance  = days_worked × food_allowance_per_day
- *   total_sleep_allowance = days_worked × sleep_allowance_per_day
+ *   total_food_allowance  = (days_worked − overtime_days) × food_allowance_per_day
+ *   total_sleep_allowance = sleep_days × sleep_allowance_per_day  (sleep_days
+ *                           is entered independently from days worked)
  *   base_wage             = days_worked × daily_wage
  *   weekly_salary         = base_wage + total_food_allowance + total_sleep_allowance
  *   overtime_amount       = overtime_days × overtime_fee   (fixed daily OT fee)
  *   gross_weekly_salary   = weekly_salary + overtime_amount
- *   total_deductions      = SSS + PagIBIG + PhilHealth contributions
- *                         + SSS loan + PagIBIG loan + Σ advances
+ *   total_deductions      = SSS loan + PagIBIG loan + Σ advances
  *   net_weekly_pay        = gross_weekly_salary − total_deductions
  *   Leave is unpaid (only days worked are paid); leave days are tracked
- *   for reporting but never enter the pay math.
+ *   for reporting but never enter the pay math. Statutory government
+ *   contributions are not modeled — the client no longer collects them.
  */
 import { multiplyCentavos, sumCentavos } from "@/lib/money";
 
@@ -23,7 +24,7 @@ export interface PayrollRates {
   dailyWageCentavos: number;
   /** Food allowance per day worked, in centavos. */
   foodAllowancePerDayCentavos: number;
-  /** Sleep allowance per day worked, in centavos. */
+  /** Sleep allowance per sleep day, in centavos. */
   sleepAllowancePerDayCentavos: number;
   /** Fixed daily overtime fee, in centavos. */
   overtimeFeeCentavos: number;
@@ -36,13 +37,12 @@ export interface PayrollInputs {
   daysOnLeave: number;
   /** Number of overtime days rendered (may be fractional). */
   overtimeDays: number;
+  /** Number of sleep days — independent of days worked (may be fractional). */
+  sleepDays: number;
 
   // Deductions in centavos. These are the final, user-adjusted values;
   // loan/advance amounts are expected to already be capped at their balances
   // by the caller, but the calculator never produces a value below zero.
-  sssContributionCentavos: number;
-  pagibigContributionCentavos: number;
-  philhealthContributionCentavos: number;
   sssLoanPaymentCentavos: number;
   pagibigLoanPaymentCentavos: number;
   /** One entry per advance being deducted this week, in centavos. */
@@ -56,7 +56,6 @@ export interface PayrollResult {
   weeklySalaryCentavos: number;
   overtimeAmountCentavos: number;
   grossWeeklySalaryCentavos: number;
-  totalContributionsCentavos: number;
   totalLoanPaymentsCentavos: number;
   totalAdvanceDeductionCentavos: number;
   totalDeductionsCentavos: number;
@@ -70,8 +69,9 @@ const nonNeg = (n: number) => Math.max(0, Math.round(n || 0));
 export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): PayrollResult {
   const daysWorked = Math.max(0, inputs.daysWorked || 0);
   const overtimeDays = Math.max(0, inputs.overtimeDays || 0);
+  const sleepDays = Math.max(0, inputs.sleepDays || 0);
 
-  // Food allowance is paid on regular (non-overtime) days: days_worked − overtime_days.
+  // Food allowance is paid on regular days only: days_worked − overtime_days.
   const foodDays = Math.max(0, daysWorked - overtimeDays);
   const totalFoodAllowanceCentavos = multiplyCentavos(
     nonNeg(rates.foodAllowancePerDayCentavos),
@@ -79,7 +79,7 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
   );
   const totalSleepAllowanceCentavos = multiplyCentavos(
     nonNeg(rates.sleepAllowancePerDayCentavos),
-    daysWorked
+    sleepDays
   );
   const baseWageCentavos = multiplyCentavos(nonNeg(rates.dailyWageCentavos), daysWorked);
 
@@ -90,12 +90,6 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
 
   const grossWeeklySalaryCentavos = weeklySalaryCentavos + overtimeAmountCentavos;
 
-  const totalContributionsCentavos = sumCentavos([
-    nonNeg(inputs.sssContributionCentavos),
-    nonNeg(inputs.pagibigContributionCentavos),
-    nonNeg(inputs.philhealthContributionCentavos),
-  ]);
-
   const totalLoanPaymentsCentavos = sumCentavos([
     nonNeg(inputs.sssLoanPaymentCentavos),
     nonNeg(inputs.pagibigLoanPaymentCentavos),
@@ -105,8 +99,7 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
     (inputs.advancePaymentsCentavos ?? []).map(nonNeg)
   );
 
-  const totalDeductionsCentavos =
-    totalContributionsCentavos + totalLoanPaymentsCentavos + totalAdvanceDeductionCentavos;
+  const totalDeductionsCentavos = totalLoanPaymentsCentavos + totalAdvanceDeductionCentavos;
 
   const netWeeklyPayCentavos = grossWeeklySalaryCentavos - totalDeductionsCentavos;
 
@@ -117,7 +110,6 @@ export function computePayroll(rates: PayrollRates, inputs: PayrollInputs): Payr
     weeklySalaryCentavos,
     overtimeAmountCentavos,
     grossWeeklySalaryCentavos,
-    totalContributionsCentavos,
     totalLoanPaymentsCentavos,
     totalAdvanceDeductionCentavos,
     totalDeductionsCentavos,

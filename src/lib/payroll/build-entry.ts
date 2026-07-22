@@ -7,6 +7,7 @@ export type EntryRow = {
   days_worked: number;
   days_on_leave: number;
   overtime_days: number;
+  sleep_days: number;
   daily_wage: number;
   overtime_fee: number;
   food_allowance_per_day: number;
@@ -16,6 +17,9 @@ export type EntryRow = {
   weekly_salary: number;
   overtime_amount: number;
   gross_weekly_salary: number;
+  // Statutory contributions are no longer collected; these columns are kept
+  // for backward compatibility with historical entries and always write 0
+  // going forward.
   sss_contribution: number;
   pagibig_contribution: number;
   philhealth_contribution: number;
@@ -63,9 +67,7 @@ export function buildEntryRow(
       daysWorked: input.days_worked,
       daysOnLeave: input.days_on_leave,
       overtimeDays: input.overtime_days,
-      sssContributionCentavos: toCentavos(input.sss_contribution),
-      pagibigContributionCentavos: toCentavos(input.pagibig_contribution),
-      philhealthContributionCentavos: toCentavos(input.philhealth_contribution),
+      sleepDays: input.sleep_days,
       sssLoanPaymentCentavos: toCentavos(sssLoanPay),
       pagibigLoanPaymentCentavos: toCentavos(pagibigLoanPay),
       advancePaymentsCentavos: allocations.map((a) => toCentavos(a.amount)),
@@ -76,6 +78,7 @@ export function buildEntryRow(
     days_worked: input.days_worked,
     days_on_leave: input.days_on_leave,
     overtime_days: input.overtime_days,
+    sleep_days: input.sleep_days,
     daily_wage: employee.daily_wage,
     overtime_fee: employee.overtime_fee,
     food_allowance_per_day: employee.food_allowance_per_day,
@@ -85,9 +88,9 @@ export function buildEntryRow(
     weekly_salary: fromCentavos(result.weeklySalaryCentavos),
     overtime_amount: fromCentavos(result.overtimeAmountCentavos),
     gross_weekly_salary: fromCentavos(result.grossWeeklySalaryCentavos),
-    sss_contribution: input.sss_contribution,
-    pagibig_contribution: input.pagibig_contribution,
-    philhealth_contribution: input.philhealth_contribution,
+    sss_contribution: 0,
+    pagibig_contribution: 0,
+    philhealth_contribution: 0,
     sss_loan_payment: sssLoanPay,
     pagibig_loan_payment: pagibigLoanPay,
     total_advance_deduction: fromCentavos(result.totalAdvanceDeductionCentavos),

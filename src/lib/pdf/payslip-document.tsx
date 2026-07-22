@@ -19,26 +19,42 @@ function dateRange(period: PayrollPeriod): string {
 export type PayslipRow = { entry: PayrollEntry; employee: Employee };
 
 const styles = StyleSheet.create({
-  page: { padding: 40, fontSize: 10, color: "#1e1b2e", fontFamily: "Helvetica" },
-  brandRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  brand: { fontSize: 18, fontFamily: "Helvetica-Bold", color: "#6d4bd8" },
-  docType: { fontSize: 11, fontFamily: "Helvetica-Bold", letterSpacing: 2, color: "#6b7280" },
-  period: { fontSize: 10, color: "#6b7280", marginBottom: 16 },
-  rule: { borderBottomWidth: 1, borderBottomColor: "#e5e1f0", marginVertical: 10 },
-  empName: { fontSize: 15, fontFamily: "Helvetica-Bold" },
-  empMeta: { fontSize: 9, color: "#6b7280", marginTop: 2 },
-  sectionTitle: { fontSize: 10, fontFamily: "Helvetica-Bold", color: "#6d4bd8", marginBottom: 6, marginTop: 6 },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2.5 },
+  page: { padding: 28, fontSize: 8, color: "#1e1b2e", fontFamily: "Helvetica" },
+  half: { flex: 1, paddingVertical: 4 },
+  cutLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#c9c3dd",
+    borderBottomStyle: "dashed",
+  },
+  cutLabel: {
+    fontSize: 6,
+    color: "#9ca3af",
+    marginHorizontal: 6,
+    letterSpacing: 1,
+  },
+  brandRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 3 },
+  brand: { fontSize: 12, fontFamily: "Helvetica-Bold", color: "#6d4bd8" },
+  docType: { fontSize: 7, fontFamily: "Helvetica-Bold", letterSpacing: 1.5, color: "#6b7280" },
+  period: { fontSize: 7, color: "#6b7280", marginBottom: 6 },
+  rule: { borderBottomWidth: 1, borderBottomColor: "#e5e1f0", marginVertical: 5 },
+  empName: { fontSize: 10, fontFamily: "Helvetica-Bold" },
+  empMeta: { fontSize: 6.5, color: "#6b7280", marginTop: 1 },
+  sectionTitle: { fontSize: 7, fontFamily: "Helvetica-Bold", color: "#6d4bd8", marginBottom: 3, marginTop: 3 },
+  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 1.5 },
   label: { color: "#374151" },
   value: { fontFamily: "Helvetica" },
-  columns: { flexDirection: "row", gap: 24 },
+  formula: { fontSize: 5.5, color: "#9ca3af", marginTop: -0.5, marginBottom: 1 },
+  columns: { flexDirection: "row", gap: 16 },
   col: { flex: 1 },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, marginTop: 4, borderTopWidth: 1, borderTopColor: "#e5e1f0" },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2.5, marginTop: 2, borderTopWidth: 1, borderTopColor: "#e5e1f0" },
   totalLabel: { fontFamily: "Helvetica-Bold" },
-  netBox: { marginTop: 16, backgroundColor: "#efeafc", borderRadius: 8, padding: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  netLabel: { fontSize: 12, fontFamily: "Helvetica-Bold" },
-  netValue: { fontSize: 18, fontFamily: "Helvetica-Bold", color: "#6d4bd8" },
-  footer: { position: "absolute", bottom: 30, left: 40, right: 40, fontSize: 8, color: "#9ca3af", textAlign: "center" },
+  netBox: { marginTop: 7, backgroundColor: "#efeafc", borderRadius: 5, paddingVertical: 5, paddingHorizontal: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  netLabel: { fontSize: 8, fontFamily: "Helvetica-Bold" },
+  netValue: { fontSize: 11, fontFamily: "Helvetica-Bold", color: "#6d4bd8" },
+  halfFooter: { fontSize: 5.5, color: "#9ca3af", textAlign: "center", marginTop: 3 },
   // Summary
   sumHead: { flexDirection: "row", backgroundColor: "#efeafc", paddingVertical: 6, paddingHorizontal: 8, fontFamily: "Helvetica-Bold" },
   sumRow: { flexDirection: "row", paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: "#eee" },
@@ -46,31 +62,49 @@ const styles = StyleSheet.create({
   sumDays: { width: 70, textAlign: "right" },
   sumNet: { width: 90, textAlign: "right" },
   grand: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 8, marginTop: 4, borderTopWidth: 2, borderTopColor: "#6d4bd8" },
+  footer: { position: "absolute", bottom: 20, left: 28, right: 28, fontSize: 8, color: "#9ca3af", textAlign: "center" },
 });
 
-function Line({ label, value }: { label: string; value: string }) {
+function Line({
+  label,
+  value,
+  formula,
+}: {
+  label: string;
+  value: string;
+  formula?: string;
+}) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
+    <View>
+      <View style={styles.row}>
+        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.value}>{value}</Text>
+      </View>
+      {formula && <Text style={styles.formula}>{formula}</Text>}
     </View>
   );
 }
 
-function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeriod }) {
+/** One self-contained payslip — rendered twice per page (see Payslip below). */
+function PayslipHalf({ entry, employee, period, copyLabel }: PayslipRow & { period: PayrollPeriod; copyLabel: string }) {
+  const foodDays = Math.max(0, entry.days_worked - entry.overtime_days);
+  const baseWage = entry.weekly_salary - entry.total_food_allowance - entry.total_sleep_allowance;
+  const hasContributions =
+    entry.sss_contribution > 0 || entry.pagibig_contribution > 0 || entry.philhealth_contribution > 0;
+
   return (
-    <Page size="A4" style={styles.page}>
+    <View style={styles.half}>
       <View style={styles.brandRow}>
         <Text style={styles.brand}>MMG HR &amp; Payroll</Text>
-        <Text style={styles.docType}>PAYSLIP</Text>
+        <Text style={styles.docType}>PAYSLIP · {copyLabel}</Text>
       </View>
       <Text style={styles.period}>Pay period: {dateRange(period)}</Text>
 
       <Text style={styles.empName}>{fullName(employee)}</Text>
       <Text style={styles.empMeta}>
         {employee.nickname ? `"${employee.nickname}"  ·  ` : ""}
-        SSS {employee.sss_number ?? "—"}  ·  PhilHealth {employee.philhealth_number ?? "—"}  ·  Pag-IBIG{" "}
-        {employee.pagibig_number ?? "—"}
+        SSS {employee.sss_number ?? "N/A"}  ·  PhilHealth {employee.philhealth_number ?? "N/A"}  ·  Pag-IBIG{" "}
+        {employee.pagibig_number ?? "N/A"}
       </Text>
 
       <View style={styles.rule} />
@@ -79,10 +113,26 @@ function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeri
         {/* Earnings */}
         <View style={styles.col}>
           <Text style={styles.sectionTitle}>EARNINGS</Text>
-          <Line label={`Basic pay (${entry.days_worked} days × ${peso(entry.daily_wage)})`} value={peso(entry.weekly_salary - entry.total_food_allowance - entry.total_sleep_allowance)} />
-          <Line label="Food allowance" value={peso(entry.total_food_allowance)} />
-          <Line label="Sleep allowance" value={peso(entry.total_sleep_allowance)} />
-          <Line label={`Overtime (${entry.overtime_days} days × ${peso(entry.overtime_fee)})`} value={peso(entry.overtime_amount)} />
+          <Line
+            label="Basic pay"
+            formula={`${entry.days_worked} days × ${peso(entry.daily_wage)}`}
+            value={peso(baseWage)}
+          />
+          <Line
+            label="Food allowance"
+            formula={`(${entry.days_worked} - ${entry.overtime_days} OT) = ${foodDays} × ${peso(entry.food_allowance_per_day)}`}
+            value={peso(entry.total_food_allowance)}
+          />
+          <Line
+            label="Sleep allowance"
+            formula={`${entry.sleep_days} sleep days × ${peso(entry.sleep_allowance_per_day)}`}
+            value={peso(entry.total_sleep_allowance)}
+          />
+          <Line
+            label="Overtime"
+            formula={`${entry.overtime_days} days × ${peso(entry.overtime_fee)}`}
+            value={peso(entry.overtime_amount)}
+          />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Gross weekly pay</Text>
             <Text style={styles.totalLabel}>{peso(entry.gross_weekly_salary)}</Text>
@@ -92,9 +142,19 @@ function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeri
         {/* Deductions */}
         <View style={styles.col}>
           <Text style={styles.sectionTitle}>DEDUCTIONS</Text>
-          <Line label="SSS contribution" value={peso(entry.sss_contribution)} />
-          <Line label="Pag-IBIG contribution" value={peso(entry.pagibig_contribution)} />
-          <Line label="PhilHealth contribution" value={peso(entry.philhealth_contribution)} />
+          {hasContributions && (
+            <>
+              {entry.sss_contribution > 0 && (
+                <Line label="SSS contribution" value={peso(entry.sss_contribution)} />
+              )}
+              {entry.pagibig_contribution > 0 && (
+                <Line label="Pag-IBIG contribution" value={peso(entry.pagibig_contribution)} />
+              )}
+              {entry.philhealth_contribution > 0 && (
+                <Line label="PhilHealth contribution" value={peso(entry.philhealth_contribution)} />
+              )}
+            </>
+          )}
           <Line label="SSS loan" value={peso(entry.sss_loan_payment)} />
           <Line label="Pag-IBIG loan" value={peso(entry.pagibig_loan_payment)} />
           <Line label="Advances" value={peso(entry.total_advance_deduction)} />
@@ -102,6 +162,9 @@ function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeri
             <Text style={styles.totalLabel}>Total deductions</Text>
             <Text style={styles.totalLabel}>{peso(entry.total_deductions)}</Text>
           </View>
+          {entry.shortfall_covered > 0 && (
+            <Line label="Shortfall covered by advance" value={`+ ${peso(entry.shortfall_covered)}`} />
+          )}
         </View>
       </View>
 
@@ -110,10 +173,23 @@ function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeri
         <Text style={styles.netValue}>{peso(entry.net_weekly_pay)}</Text>
       </View>
 
-      <Text style={styles.footer}>
-        {fullName(employee)} · {dateRange(period)} · Days on leave:{" "}
-        {entry.days_on_leave} · Generated by MMG HR &amp; Payroll on {new Date().toLocaleDateString("en-PH")}
+      <Text style={styles.halfFooter}>
+        {fullName(employee)} · {dateRange(period)} · Days on leave: {entry.days_on_leave}
       </Text>
+    </View>
+  );
+}
+
+function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeriod }) {
+  return (
+    <Page size="A4" style={styles.page}>
+      <PayslipHalf entry={entry} employee={employee} period={period} copyLabel="EMPLOYEE COPY" />
+      <View style={styles.cutLine}>
+        <Text style={styles.cutLabel}>- - - - - - - - - - - - - - CUT HERE - - - - - - - - - - - - - -</Text>
+      </View>
+      <PayslipHalf entry={entry} employee={employee} period={period} copyLabel="COMPANY COPY" />
+
+      <Text style={styles.footer} render={({ pageNumber }) => `Page ${pageNumber} · Generated by MMG HR & Payroll on ${new Date().toLocaleDateString("en-PH")}`} fixed />
     </Page>
   );
 }

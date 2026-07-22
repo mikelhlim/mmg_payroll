@@ -368,6 +368,13 @@ grant execute on function public.admin_wipe_all_data() to authenticated;
 -- Amendments & audit log (see migration 20260718090000). Re-run safe.
 -- transaction_logs, payroll_periods.version/amended_at, reopen_payroll_period(),
 -- and the day-validation inside finalize_payroll_period() are added there.
--- The canonical, up-to-date definitions live in that migration file; this
+--
+-- Sleep days & shortfall-covered-by-advance (see migration 20260719020000):
+-- payroll_entries.sleep_days (independent from days_worked) and
+-- .shortfall_covered (set when a negative net pay is resolved by issuing a
+-- new advance instead); finalize_payroll_period()'s net-pay guard there
+-- allows net = 0 specifically when shortfall_covered > 0.
+--
+-- The canonical, up-to-date definitions live in the migration files; this
 -- schema.sql seeds a fresh database when combined with the migrations folder.
 -- ============================================================================

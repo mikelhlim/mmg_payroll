@@ -55,7 +55,11 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
 
   const computedCount = rosterIds.filter((eid) => entryByEmployee.has(eid)).length;
   const totalNet = entries.reduce((sum, e) => sum + e.net_weekly_pay, 0);
-  const anyNonPositive = entries.some((e) => e.net_weekly_pay <= 0);
+  // A net of exactly 0 is fine when it was explicitly resolved by covering
+  // the shortfall with a new advance; otherwise 0 or negative still blocks.
+  const anyNonPositive = entries.some(
+    (e) => e.net_weekly_pay < 0 || (e.net_weekly_pay === 0 && (e.shortfall_covered ?? 0) === 0)
+  );
   const allComputed = employees.length > 0 && employees.every((e) => entryByEmployee.has(e.id));
   const allDaysMatch =
     employees.length > 0 &&
@@ -166,7 +170,10 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
           {roster.map((emp) => {
             const entry = entryByEmployee.get(emp.id);
             const computed = Boolean(entry);
-            const nonPositive = entry ? entry.net_weekly_pay <= 0 : false;
+            const nonPositive = entry
+              ? entry.net_weekly_pay < 0 ||
+                (entry.net_weekly_pay === 0 && (entry.shortfall_covered ?? 0) === 0)
+              : false;
             return (
               <Link key={emp.id} href={`/payroll/${id}/${emp.id}`}>
                 <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">

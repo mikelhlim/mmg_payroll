@@ -14,6 +14,7 @@ import { analyzeNewPeriod } from "@/lib/payroll/validation";
 import { formatPeriod } from "@/lib/payroll/period";
 import { buildEntryRow } from "@/lib/payroll/build-entry";
 import { formatPHP } from "@/lib/money";
+import { MAX_ADVANCES } from "@/lib/validation/obligations";
 import { fullName, type Advance, type Employee, type Loan } from "@/lib/types";
 
 export type CreatePeriodResult =
@@ -167,12 +168,14 @@ export async function savePayrollEntry(
     parsed.data
   );
 
-  const { error } = await supabase
-    .from("payroll_entries")
-    .upsert(
-      { period_id: periodId, employee_id: employeeId, ...row },
-      { onConflict: "period_id,employee_id" }
-    );
+  const { error } = await supabase.from("payroll_entries").upsert(
+    // A normal save always reflects exactly what buildEntryRow computed from
+    // the current inputs — clear any prior "shortfall covered by advance"
+    // flag, since that only applies to the specific entry state it was set
+    // for (only coverShortfallWithAdvance sets it again).
+    { period_id: periodId, employee_id: employeeId, ...row, shortfall_covered: 0 },
+    { onConflict: "period_id,employee_id" }
+  );
   if (error) return { error: error.message };
 
   await logTransaction(supabase, {
@@ -198,6 +201,94 @@ export async function savePayrollEntry(
     netWeeklyPay: row.net_weekly_pay,
     isNetNonPositive: row.net_weekly_pay <= 0,
   };
+}
+
+export type CoverShortfallResult = { error: string } | { ok: true; shortfall: number };
+
+/**
+ * Resolve a negative net pay by issuing a new advance for the exact shortfall:
+ * the company effectively fronts the difference, the employee's net for this
+ * period becomes ₱0 (not negative), and the shortfall becomes a normal advance
+ * balance to be repaid via ordinary deductions in this or future periods.
+ * Genuinely negative net pay always blocks finalize; this is the resolution
+ * path — finalize allows the resulting net = 0 specifically because
+ * shortfall_covered > 0 (see finalize_payroll_period()).
+ */
+export async function coverShortfallWithAdvance(
+  periodId: string,
+  employeeId: string,
+  raw: PayrollEntryInput
+): Promise<CoverShortfallResult> {
+  const supabase = await createClient();
+  await assertAuthenticated(supabase);
+
+  const parsed = payrollEntrySchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+
+  const { data: period } = await supabase
+    .from("payroll_periods")
+    .select("status, period_start, period_end")
+    .eq("id", periodId)
+    .maybeSingle();
+  if (!period) return { error: "Payroll period not found." };
+  if (period.status === "finalized") {
+    return { error: "This payroll period is already finalized and can't be changed." };
+  }
+
+  const [{ data: employee }, { data: loanRows }, { data: advanceRows }] = await Promise.all([
+    supabase.from("employees").select("*").eq("id", employeeId).maybeSingle(),
+    supabase.from("loans").select("*").eq("employee_id", employeeId),
+    supabase.from("advances").select("*").eq("employee_id", employeeId).eq("is_active", true),
+  ]);
+  if (!employee) return { error: "Employee not found." };
+
+  const activeAdvances = (advanceRows ?? []) as Advance[];
+  if (activeAdvances.length >= MAX_ADVANCES) {
+    return {
+      error: `Can't cover the shortfall — already at the ${MAX_ADVANCES}-advance limit. Remove or pay off an existing advance first.`,
+    };
+  }
+
+  const { row } = buildEntryRow(
+    employee as Employee,
+    (loanRows ?? []) as Loan[],
+    activeAdvances,
+    parsed.data
+  );
+  if (row.net_weekly_pay >= 0) {
+    return { error: "Net pay isn't negative — there's no shortfall to cover." };
+  }
+  const shortfall = Math.abs(row.net_weekly_pay);
+
+  const { error: advanceError } = await supabase.from("advances").insert({
+    employee_id: employeeId,
+    label: `Net pay shortfall (${formatPeriod(period.period_start, period.period_end)})`,
+    start_date: period.period_start,
+    total_advance: shortfall,
+    current_balance: shortfall,
+  });
+  if (advanceError) return { error: advanceError.message };
+
+  const { error: entryError } = await supabase.from("payroll_entries").upsert(
+    { period_id: periodId, employee_id: employeeId, ...row, net_weekly_pay: 0, shortfall_covered: shortfall },
+    { onConflict: "period_id,employee_id" }
+  );
+  if (entryError) return { error: entryError.message };
+
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "payroll_entry",
+    entity_id: employeeId,
+    summary: `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
+      employee as Employee
+    )} with a new advance (${formatPeriod(period.period_start, period.period_end)})`,
+    details: { shortfall },
+  });
+
+  revalidatePath(`/payroll/${periodId}`);
+  revalidatePath(`/employees/${employeeId}`);
+  revalidatePath("/");
+  return { ok: true, shortfall };
 }
 
 export async function finalizePeriod(id: string): Promise<{ error: string } | { ok: true }> {

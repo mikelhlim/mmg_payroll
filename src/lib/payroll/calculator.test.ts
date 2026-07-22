@@ -6,29 +6,30 @@ import { toCentavos } from "@/lib/money";
 const rates: PayrollRates = {
   dailyWageCentavos: toCentavos(610), // ₱610/day
   foodAllowancePerDayCentavos: toCentavos(80), // ₱80/day
-  sleepAllowancePerDayCentavos: toCentavos(50), // ₱50/day
+  sleepAllowancePerDayCentavos: toCentavos(50), // ₱50/sleep day
   overtimeFeeCentavos: toCentavos(150), // ₱150/OT day
 };
 
-const noDeductions: Omit<PayrollInputs, "daysWorked" | "daysOnLeave" | "overtimeDays"> = {
-  sssContributionCentavos: 0,
-  pagibigContributionCentavos: 0,
-  philhealthContributionCentavos: 0,
+const noDeductions: Omit<
+  PayrollInputs,
+  "daysWorked" | "daysOnLeave" | "overtimeDays" | "sleepDays"
+> = {
   sssLoanPaymentCentavos: 0,
   pagibigLoanPaymentCentavos: 0,
   advancePaymentsCentavos: [],
 };
 
 describe("computePayroll — earnings", () => {
-  it("computes allowances and weekly salary from days worked", () => {
+  it("computes food/base allowances from days worked and sleep allowance from sleep days", () => {
     const r = computePayroll(rates, {
       daysWorked: 6,
       daysOnLeave: 0,
       overtimeDays: 0,
+      sleepDays: 6,
       ...noDeductions,
     });
     expect(r.totalFoodAllowanceCentavos).toBe(toCentavos(480)); // 6 × 80
-    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(300)); // 6 × 50
+    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(300)); // 6 sleep days × 50
     expect(r.baseWageCentavos).toBe(toCentavos(3660)); // 6 × 610
     expect(r.weeklySalaryCentavos).toBe(toCentavos(4440)); // 3660 + 480 + 300
     expect(r.overtimeAmountCentavos).toBe(0);
@@ -37,11 +38,24 @@ describe("computePayroll — earnings", () => {
     expect(r.isNetNonPositive).toBe(false);
   });
 
+  it("sleep days are independent of days worked (can differ)", () => {
+    const r = computePayroll(rates, {
+      daysWorked: 6,
+      daysOnLeave: 0,
+      overtimeDays: 0,
+      sleepDays: 4, // slept fewer nights than days worked
+      ...noDeductions,
+    });
+    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(200)); // 4 × 50, not 6 × 50
+    expect(r.baseWageCentavos).toBe(toCentavos(3660)); // unaffected: 6 × 610
+  });
+
   it("adds overtime as overtime_days × fixed daily overtime fee", () => {
     const r = computePayroll(rates, {
       daysWorked: 6,
       daysOnLeave: 0,
       overtimeDays: 2,
+      sleepDays: 6,
       ...noDeductions,
     });
     expect(r.overtimeAmountCentavos).toBe(toCentavos(300)); // 2 × 150
@@ -56,10 +70,11 @@ describe("computePayroll — earnings", () => {
       daysWorked: 5,
       daysOnLeave: 0,
       overtimeDays: 2,
+      sleepDays: 5,
       ...noDeductions,
     });
     expect(r.totalFoodAllowanceCentavos).toBe(toCentavos(240)); // (5 − 2) × 80
-    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(250)); // sleep unaffected: 5 × 50
+    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(250)); // sleep unaffected by OT: 5 × 50
   });
 
   it("does not pay leave days — only days worked are paid", () => {
@@ -67,6 +82,7 @@ describe("computePayroll — earnings", () => {
       daysWorked: 4,
       daysOnLeave: 2,
       overtimeDays: 0,
+      sleepDays: 4,
       ...noDeductions,
     });
     expect(worked.baseWageCentavos).toBe(toCentavos(2440)); // 4 × 610, leave ignored
@@ -78,6 +94,7 @@ describe("computePayroll — earnings", () => {
       daysWorked: 5.5,
       daysOnLeave: 0,
       overtimeDays: 0,
+      sleepDays: 5.5,
       ...noDeductions,
     });
     expect(r.baseWageCentavos).toBe(toCentavos(3355)); // 5.5 × 610
@@ -86,25 +103,22 @@ describe("computePayroll — earnings", () => {
 });
 
 describe("computePayroll — deductions & net", () => {
-  it("subtracts contributions, loans, and advances", () => {
+  it("subtracts loans and advances (no statutory contributions)", () => {
     const r = computePayroll(rates, {
       daysWorked: 6,
       daysOnLeave: 0,
       overtimeDays: 1,
-      sssContributionCentavos: toCentavos(135),
-      pagibigContributionCentavos: toCentavos(100),
-      philhealthContributionCentavos: toCentavos(90),
+      sleepDays: 6,
       sssLoanPaymentCentavos: toCentavos(200),
       pagibigLoanPaymentCentavos: toCentavos(150),
       advancePaymentsCentavos: [toCentavos(250), toCentavos(100)],
     });
     // food = (6 − 1) × 80 = 400; base 3660 + 400 + sleep 300 = 4360; + OT 150 = 4510.
     expect(r.grossWeeklySalaryCentavos).toBe(toCentavos(4510));
-    expect(r.totalContributionsCentavos).toBe(toCentavos(325)); // 135+100+90
     expect(r.totalLoanPaymentsCentavos).toBe(toCentavos(350)); // 200+150
     expect(r.totalAdvanceDeductionCentavos).toBe(toCentavos(350)); // 250+100
-    expect(r.totalDeductionsCentavos).toBe(toCentavos(1025));
-    expect(r.netWeeklyPayCentavos).toBe(toCentavos(3485)); // 4510 - 1025
+    expect(r.totalDeductionsCentavos).toBe(toCentavos(700));
+    expect(r.netWeeklyPayCentavos).toBe(toCentavos(3810)); // 4510 - 700
     expect(r.isNetNonPositive).toBe(false);
   });
 
@@ -113,6 +127,7 @@ describe("computePayroll — deductions & net", () => {
       daysWorked: 1,
       daysOnLeave: 0,
       overtimeDays: 0,
+      sleepDays: 1,
       ...noDeductions,
       sssLoanPaymentCentavos: toCentavos(5000), // wipes out the small week
     });
@@ -125,9 +140,10 @@ describe("computePayroll — deductions & net", () => {
       daysWorked: 1,
       daysOnLeave: 0,
       overtimeDays: 0,
+      sleepDays: 1,
       ...noDeductions,
       // gross for 1 day = 610 + 80 + 50 = 740
-      sssContributionCentavos: toCentavos(740),
+      sssLoanPaymentCentavos: toCentavos(740),
     });
     expect(r.netWeeklyPayCentavos).toBe(0);
     expect(r.isNetNonPositive).toBe(true);
@@ -138,12 +154,13 @@ describe("computePayroll — deductions & net", () => {
       daysWorked: -3,
       daysOnLeave: 0,
       overtimeDays: -1,
+      sleepDays: -2,
       ...noDeductions,
-      sssContributionCentavos: -100,
+      sssLoanPaymentCentavos: -100,
     });
     expect(r.baseWageCentavos).toBe(0);
     expect(r.overtimeAmountCentavos).toBe(0);
-    expect(r.totalContributionsCentavos).toBe(0);
+    expect(r.totalSleepAllowanceCentavos).toBe(0);
     expect(r.netWeeklyPayCentavos).toBe(0);
   });
 });

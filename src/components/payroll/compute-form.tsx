@@ -5,25 +5,38 @@ import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { savePayrollEntry } from "@/lib/actions/payroll";
+import { savePayrollEntry, coverShortfallWithAdvance } from "@/lib/actions/payroll";
 import { buildEntryRow } from "@/lib/payroll/build-entry";
 import { daysMatch, periodDays } from "@/lib/payroll/validation";
 import { MAX_ADVANCES } from "@/lib/validation/obligations";
 import type { PayrollEntryInput } from "@/lib/validation/payroll";
-import { type Advance, type Employee, type Loan, type PayrollEntry } from "@/lib/types";
+import { type Advance, type Employee, type Loan, type LoanType, type PayrollEntry } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
 import { AdvanceDialog } from "@/components/employees/advances-card";
+import { LoanDialog, LOAN_LABELS } from "@/components/employees/loans-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CalendarClock,
+  HandCoins,
   Loader2,
   Lock,
   Pencil,
@@ -35,9 +48,7 @@ type FormValues = {
   days_worked: number;
   days_on_leave: number;
   overtime_days: number;
-  sss_contribution: number;
-  pagibig_contribution: number;
-  philhealth_contribution: number;
+  sleep_days: number;
   sss_loan_payment: number;
   pagibig_loan_payment: number;
   advances: Record<string, number>;
@@ -49,9 +60,7 @@ function defaults(employee: Employee, advances: Advance[], entry: PayrollEntry |
     days_worked: entry?.days_worked ?? 0,
     days_on_leave: entry?.days_on_leave ?? 0,
     overtime_days: entry?.overtime_days ?? 0,
-    sss_contribution: entry?.sss_contribution ?? employee.sss_contribution,
-    pagibig_contribution: entry?.pagibig_contribution ?? employee.pagibig_contribution,
-    philhealth_contribution: entry?.philhealth_contribution ?? employee.philhealth_contribution,
+    sleep_days: entry?.sleep_days ?? 0,
     sss_loan_payment: entry?.sss_loan_payment ?? 0,
     pagibig_loan_payment: entry?.pagibig_loan_payment ?? 0,
     advances: Object.fromEntries(advances.map((a) => [a.id, allocById.get(a.id) ?? 0])),
@@ -82,6 +91,8 @@ function Line({
   );
 }
 
+const LOAN_TYPES: LoanType[] = ["SSS", "PAGIBIG"];
+
 export function ComputeForm({
   periodId,
   periodStart,
@@ -106,6 +117,7 @@ export function ComputeForm({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [savedNonPositive, setSavedNonPositive] = useState(false);
+  const [coveringShortfall, setCoveringShortfall] = useState(false);
   const ro = periodFinalized; // read-only
 
   const { register, handleSubmit, watch, setValue } = useForm<FormValues>({
@@ -123,9 +135,7 @@ export function ComputeForm({
     days_worked: Number(v.days_worked) || 0,
     days_on_leave: Number(v.days_on_leave) || 0,
     overtime_days: Number(v.overtime_days) || 0,
-    sss_contribution: Number(v.sss_contribution) || 0,
-    pagibig_contribution: Number(v.pagibig_contribution) || 0,
-    philhealth_contribution: Number(v.philhealth_contribution) || 0,
+    sleep_days: Number(v.sleep_days) || 0,
     sss_loan_payment: Number(v.sss_loan_payment) || 0,
     pagibig_loan_payment: Number(v.pagibig_loan_payment) || 0,
     advance_allocations: advances.map((a) => ({
@@ -143,6 +153,11 @@ export function ComputeForm({
 
   const sssLoan = loans.find((l) => l.loan_type === "SSS");
   const pagibigLoan = loans.find((l) => l.loan_type === "PAGIBIG");
+  const loanByType: Record<LoanType, Loan | undefined> = { SSS: sssLoan, PAGIBIG: pagibigLoan };
+  const loanFieldByType: Record<LoanType, "sss_loan_payment" | "pagibig_loan_payment"> = {
+    SSS: "sss_loan_payment",
+    PAGIBIG: "pagibig_loan_payment",
+  };
 
   // Auto-save the unfinished run when navigating away with unsaved changes.
   const savedSigRef = useRef(JSON.stringify(defaults(employee, advances, entry)));
@@ -154,6 +169,21 @@ export function ComputeForm({
   };
   useEffect(() => () => autosaveRef.current(), []);
 
+  // A shortfall just covered (this period, unsaved-input-independent) is shown
+  // as net = 0 until the user changes an input again, at which point it's
+  // stale and we fall back to the live (possibly negative again) computation.
+  const [shortfallState, setShortfallState] = useState<{ amount: number; valuesSig: string } | null>(
+    entry?.shortfall_covered && entry.shortfall_covered > 0
+      ? { amount: entry.shortfall_covered, valuesSig: JSON.stringify(defaults(employee, advances, entry)) }
+      : null
+  );
+  useEffect(() => {
+    if (shortfallState && JSON.stringify(values) !== shortfallState.valuesSig) {
+      setShortfallState(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(values)]);
+
   function onSubmit(v: FormValues) {
     startTransition(async () => {
       const res = await savePayrollEntry(periodId, employee.id, toInput(v));
@@ -162,6 +192,7 @@ export function ComputeForm({
         return;
       }
       savedSigRef.current = JSON.stringify(v);
+      setShortfallState(null);
       if (res.isNetNonPositive) {
         setSavedNonPositive(true);
         toast.warning("Saved, but net pay is ₱0 or negative — please review.");
@@ -174,9 +205,24 @@ export function ComputeForm({
     });
   }
 
+  async function handleCoverShortfall() {
+    setCoveringShortfall(true);
+    const res = await coverShortfallWithAdvance(periodId, employee.id, toInput(values));
+    setCoveringShortfall(false);
+    if ("error" in res) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`Covered a ${formatPHP(res.shortfall)} shortfall with a new advance.`);
+    savedSigRef.current = JSON.stringify(values);
+    setShortfallState({ amount: res.shortfall, valuesSig: JSON.stringify(values) });
+    router.refresh();
+  }
+
   const num = (name: keyof FormValues) => register(name, { valueAsNumber: true, disabled: ro });
 
-  // Days worked auto-fills leave = period days − worked (when worked < period).
+  // Days worked auto-fills leave = period days − worked, and defaults sleep
+  // days to match days worked (both stay independently editable afterward).
   const daysWorkedReg = register("days_worked", {
     valueAsNumber: true,
     disabled: ro,
@@ -184,20 +230,27 @@ export function ComputeForm({
       if (ro) return;
       const w = Number(e.target.value) || 0;
       setValue("days_on_leave", Math.max(0, expectedDays - w), { shouldDirty: true });
+      setValue("sleep_days", w, { shouldDirty: true });
     },
   });
 
   // Display helpers for the formula labels.
   const dw = Number(values.days_worked) || 0;
   const otd = Number(values.overtime_days) || 0;
+  const sld = Number(values.sleep_days) || 0;
   const foodDays = Math.max(0, dw - otd);
   // Finalized entries are read-only: show the stored, finalized figures (rates
   // and the food rule may have changed since), not a live recompute. Drafts
   // show the live preview.
   const display = ro && entry ? entry : row;
-  const displayNonPositive = display.net_weekly_pay <= 0;
   const baseWage =
     display.weekly_salary - display.total_food_allowance - display.total_sleep_allowance;
+
+  const shortfallCoveredNow = ro ? (entry?.shortfall_covered ?? 0) > 0 : shortfallState !== null;
+  const shortfallAmountShown = ro ? (entry?.shortfall_covered ?? 0) : (shortfallState?.amount ?? 0);
+  const shownNet = shortfallCoveredNow ? 0 : display.net_weekly_pay;
+  const shownNonPositive = shortfallCoveredNow ? false : shownNet <= 0;
+  const canCoverShortfall = !ro && !shortfallCoveredNow && row.net_weekly_pay < 0;
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -216,7 +269,7 @@ export function ComputeForm({
             <CardTitle className="text-base">Attendance</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <div className="space-y-1.5">
                 <Label htmlFor="days_worked">Days worked</Label>
                 <Input id="days_worked" type="number" step="0.5" min="0" {...daysWorkedReg} />
@@ -228,6 +281,13 @@ export function ComputeForm({
                 <Label htmlFor="days_on_leave">Days on leave</Label>
                 <Input id="days_on_leave" type="number" step="0.5" min="0" {...num("days_on_leave")} />
                 <p className="text-xs text-muted-foreground">auto-filled from days worked</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sleep_days">Sleep days</Label>
+                <Input id="sleep_days" type="number" step="0.5" min="0" {...num("sleep_days")} />
+                <p className="text-xs text-muted-foreground">
+                  × {formatPHP(employee.sleep_allowance_per_day)}/day
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="overtime_days">Overtime days</Label>
@@ -256,52 +316,65 @@ export function ComputeForm({
             <CardTitle className="text-base">Deductions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div>
-              <p className="mb-2 text-sm font-semibold text-muted-foreground">
-                Statutory contributions
-              </p>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="sss_contribution">SSS</Label>
-                  <MoneyInput id="sss_contribution" {...num("sss_contribution")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pagibig_contribution">Pag-IBIG</Label>
-                  <MoneyInput id="pagibig_contribution" {...num("pagibig_contribution")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="philhealth_contribution">PhilHealth</Label>
-                  <MoneyInput id="philhealth_contribution" {...num("philhealth_contribution")} />
-                </div>
-              </div>
-            </div>
-
-            {(sssLoan || pagibigLoan) && (
+            {(sssLoan || pagibigLoan || !ro) && (
               <div>
-                <p className="mb-2 text-sm font-semibold text-muted-foreground">Loan repayments</p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {sssLoan && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="sss_loan_payment">SSS loan</Label>
-                      <MoneyInput id="sss_loan_payment" {...num("sss_loan_payment")} />
-                      <p className="text-xs text-muted-foreground">
-                        Balance {formatPHP(sssLoan.current_balance)} of{" "}
-                        {formatPHP(sssLoan.principal)}
-                        {sssLoan.start_date ? ` · since ${sssLoan.start_date}` : ""}
-                      </p>
-                    </div>
-                  )}
-                  {pagibigLoan && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="pagibig_loan_payment">Pag-IBIG loan</Label>
-                      <MoneyInput id="pagibig_loan_payment" {...num("pagibig_loan_payment")} />
-                      <p className="text-xs text-muted-foreground">
-                        Balance {formatPHP(pagibigLoan.current_balance)} of{" "}
-                        {formatPHP(pagibigLoan.principal)}
-                        {pagibigLoan.start_date ? ` · since ${pagibigLoan.start_date}` : ""}
-                      </p>
-                    </div>
-                  )}
+                <p className="mb-2 text-sm font-semibold text-muted-foreground">Government loans</p>
+                <div className="space-y-3">
+                  {LOAN_TYPES.map((type) => {
+                    const loan = loanByType[type];
+                    if (ro && !loan) return null;
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{LOAN_LABELS[type]}</p>
+                          {loan ? (
+                            <p className="text-xs text-muted-foreground">
+                              Balance {formatPHP(loan.current_balance)} of{" "}
+                              {formatPHP(loan.principal)}
+                              {loan.start_date ? ` · since ${loan.start_date}` : ""}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">No loan on record.</p>
+                          )}
+                        </div>
+                        {!ro && (
+                          <LoanDialog
+                            employeeId={employee.id}
+                            loanType={type}
+                            loan={loan}
+                            trigger={
+                              loan ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Edit ${LOAN_LABELS[type]}`}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : (
+                                <Button type="button" variant="outline" size="sm">
+                                  <Plus className="h-3.5 w-3.5" /> Add
+                                </Button>
+                              )
+                            }
+                          />
+                        )}
+                        {loan && (
+                          <div className="w-40">
+                            <MoneyInput
+                              aria-label={`${LOAN_LABELS[type]} repayment`}
+                              disabled={ro}
+                              {...register(loanFieldByType[type], {
+                                valueAsNumber: true,
+                                disabled: ro,
+                              })}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -392,7 +465,9 @@ export function ComputeForm({
             />
             <Line
               label="Sleep allowance"
-              formula={ro ? undefined : `${dw} days × ${formatPHP(employee.sleep_allowance_per_day)}`}
+              formula={
+                ro ? undefined : `${sld} sleep days × ${formatPHP(employee.sleep_allowance_per_day)}`
+              }
               value={formatPHP(display.total_sleep_allowance)}
             />
             <Line
@@ -403,18 +478,7 @@ export function ComputeForm({
             <div className="my-1 border-t" />
             <Line label="Gross weekly" value={formatPHP(display.gross_weekly_salary)} strong />
             <div className="my-1 border-t" />
-            <Line
-              label="Contributions"
-              formula={
-                ro
-                  ? undefined
-                  : `SSS ${formatPHP(display.sss_contribution)} + Pag-IBIG ${formatPHP(display.pagibig_contribution)} + PhilHealth ${formatPHP(display.philhealth_contribution)}`
-              }
-              value={`− ${formatPHP(display.sss_contribution + display.pagibig_contribution + display.philhealth_contribution)}`}
-            />
-            {sssLoan && (
-              <Line label="SSS loan" value={`− ${formatPHP(display.sss_loan_payment)}`} />
-            )}
+            {sssLoan && <Line label="SSS loan" value={`− ${formatPHP(display.sss_loan_payment)}`} />}
             {pagibigLoan && (
               <Line label="Pag-IBIG loan" value={`− ${formatPHP(display.pagibig_loan_payment)}`} />
             )}
@@ -424,23 +488,58 @@ export function ComputeForm({
               value={`− ${formatPHP(display.total_deductions)}`}
               strong
             />
+            {shortfallCoveredNow && (
+              <Line
+                label="Shortfall covered by advance"
+                value={`+ ${formatPHP(shortfallAmountShown)}`}
+              />
+            )}
             <div className="my-1 border-t" />
             <div
               className={cn(
                 "flex items-center justify-between rounded-xl px-3 py-2.5 text-lg font-bold",
-                displayNonPositive
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-success/10 text-success"
+                shownNonPositive ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"
               )}
             >
               <span>Net pay</span>
-              <span className="tabular-nums">{formatPHP(display.net_weekly_pay)}</span>
+              <span className="tabular-nums">{formatPHP(shownNet)}</span>
             </div>
-            {displayNonPositive && !ro && (
-              <p className="flex items-start gap-1.5 text-xs text-destructive">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Net pay is ₱0 or negative. Reduce deductions before finalizing this period.
+            {shortfallCoveredNow && (
+              <p className="text-xs text-success">
+                {`Resolved: a ${formatPHP(shortfallAmountShown)} advance was issued to cover this week's shortfall.`}
               </p>
+            )}
+            {shownNonPositive && !ro && (
+              <div className="space-y-2">
+                <p className="flex items-start gap-1.5 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  Net pay is ₱0 or negative. Reduce deductions, or cover the shortfall with a new
+                  advance, before finalizing this period.
+                </p>
+                {canCoverShortfall && (
+                  <AlertDialog>
+                    <AlertDialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
+                      <HandCoins className="h-3.5 w-3.5" />
+                      {` Cover ${formatPHP(Math.abs(row.net_weekly_pay))} shortfall with a new advance`}
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Cover this shortfall with a new advance?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {`This creates a new ${formatPHP(Math.abs(row.net_weekly_pay))} advance for ${employee.first_name} and sets this week's net pay to ₱0. The advance balance is repaid via normal deductions in this or future payroll runs.`}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction disabled={coveringShortfall} onClick={handleCoverShortfall}>
+                          {coveringShortfall && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                          Cover shortfall
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

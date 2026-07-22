@@ -74,6 +74,7 @@ export type PayrollEntry = {
   days_worked: number;
   days_on_leave: number;
   overtime_days: number;
+  sleep_days: number;
   daily_wage: number;
   overtime_fee: number;
   food_allowance_per_day: number;
@@ -83,6 +84,8 @@ export type PayrollEntry = {
   weekly_salary: number;
   overtime_amount: number;
   gross_weekly_salary: number;
+  // Statutory contributions are no longer collected (kept for backward
+  // compatibility with historical entries — always 0 going forward).
   sss_contribution: number;
   pagibig_contribution: number;
   philhealth_contribution: number;
@@ -91,6 +94,8 @@ export type PayrollEntry = {
   total_advance_deduction: number;
   total_deductions: number;
   net_weekly_pay: number;
+  /** Set when a negative net pay was resolved by issuing a new advance. */
+  shortfall_covered: number;
   advance_allocations: AdvanceAllocation[];
   created_at: string;
   updated_at: string;

@@ -28,9 +28,8 @@ function toRow(input: EmployeeInput) {
     overtime_fee: round2(input.overtime_fee),
     food_allowance_per_day: round2(input.food_allowance_per_day),
     sleep_allowance_per_day: round2(input.sleep_allowance_per_day),
-    sss_contribution: round2(input.sss_contribution),
-    pagibig_contribution: round2(input.pagibig_contribution),
-    philhealth_contribution: round2(input.philhealth_contribution),
+    // Statutory contributions are no longer collected — omit them so the
+    // column keeps its DB default (insert) or existing value (update).
     is_active: input.is_active,
   };
 }

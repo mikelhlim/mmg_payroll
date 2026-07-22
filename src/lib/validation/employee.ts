@@ -25,9 +25,6 @@ export const employeeSchema = z.object({
   overtime_fee: money,
   food_allowance_per_day: money,
   sleep_allowance_per_day: money,
-  sss_contribution: money,
-  pagibig_contribution: money,
-  philhealth_contribution: money,
   is_active: z.boolean(),
 });
 
@@ -47,8 +44,5 @@ export const employeeDefaults: EmployeeInput = {
   overtime_fee: 0,
   food_allowance_per_day: 0,
   sleep_allowance_per_day: 0,
-  sss_contribution: 0,
-  pagibig_contribution: 0,
-  philhealth_contribution: 0,
   is_active: true,
 };
