@@ -140,9 +140,9 @@ export function LoanDialog({
               <Label htmlFor={`${loanType}-start`}>Start date</Label>
               <Input id={`${loanType}-start`} type="date" {...register("start_date")} />
             </div>
-            {(errors.principal || errors.current_balance) && (
+            {(errors.principal || errors.current_balance || errors.start_date) && (
               <p className="text-xs text-destructive">
-                {errors.principal?.message ?? errors.current_balance?.message}
+                {errors.principal?.message ?? errors.current_balance?.message ?? errors.start_date?.message}
               </p>
             )}
           </div>

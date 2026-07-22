@@ -28,6 +28,13 @@ export async function saveLoan(employeeId: string, raw: LoanInput): Promise<Resu
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const v = parsed.data;
 
+  const { data: existing } = await supabase
+    .from("loans")
+    .select("current_balance")
+    .eq("employee_id", employeeId)
+    .eq("loan_type", v.loan_type)
+    .maybeSingle();
+
   const { error } = await supabase.from("loans").upsert(
     {
       employee_id: employeeId,
@@ -45,6 +52,7 @@ export async function saveLoan(employeeId: string, raw: LoanInput): Promise<Resu
     entity: "loan",
     entity_id: employeeId,
     summary: `Saved ${v.loan_type} loan — balance ${formatPHP(v.current_balance)}`,
+    details: { previous_balance: existing?.current_balance ?? null, new_balance: v.current_balance },
   });
 
   revalidatePath(`/employees/${employeeId}`);
@@ -137,6 +145,30 @@ export async function updateAdvance(
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const v = parsed.data;
 
+  const { data: existing } = await supabase
+    .from("advances")
+    .select("is_active, current_balance")
+    .eq("id", advanceId)
+    .maybeSingle();
+
+  // Reactivating a previously paid-off advance is subject to the same
+  // 5-advance cap as creating a new one — check proactively for a friendly
+  // message instead of surfacing the raw DB trigger error.
+  const willBeActive = round2(v.current_balance) > 0;
+  if (willBeActive && !existing?.is_active) {
+    const { count } = await supabase
+      .from("advances")
+      .select("*", { count: "exact", head: true })
+      .eq("employee_id", employeeId)
+      .eq("is_active", true)
+      .neq("id", advanceId);
+    if ((count ?? 0) >= MAX_ADVANCES) {
+      return {
+        error: `An employee can have at most ${MAX_ADVANCES} active advances. Remove or pay off another one first.`,
+      };
+    }
+  }
+
   const { error } = await supabase
     .from("advances")
     .update({
@@ -144,7 +176,7 @@ export async function updateAdvance(
       start_date: nullify(v.start_date),
       total_advance: round2(v.total_advance),
       current_balance: round2(v.current_balance),
-      is_active: round2(v.current_balance) > 0,
+      is_active: willBeActive,
     })
     .eq("id", advanceId);
   if (error) return { error: error.message };
@@ -156,6 +188,7 @@ export async function updateAdvance(
     summary: `Updated advance "${nullify(v.label) ?? "Advance"}" — balance ${formatPHP(
       v.current_balance
     )}`,
+    details: { previous_balance: existing?.current_balance ?? null, new_balance: v.current_balance },
   });
 
   revalidatePath(`/employees/${employeeId}`);

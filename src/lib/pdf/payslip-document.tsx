@@ -162,11 +162,12 @@ function PayslipHalf({ entry, employee, period, copyLabel }: PayslipRow & { peri
             <Text style={styles.totalLabel}>Total deductions</Text>
             <Text style={styles.totalLabel}>{peso(entry.total_deductions)}</Text>
           </View>
-          {entry.shortfall_covered > 0 && (
-            <Line label="Shortfall covered by advance" value={`+ ${peso(entry.shortfall_covered)}`} />
-          )}
         </View>
       </View>
+
+      {entry.shortfall_covered > 0 && (
+        <Line label="Advance due to Shortfall" value={`+ ${peso(entry.shortfall_covered)}`} />
+      )}
 
       <View style={styles.netBox}>
         <Text style={styles.netLabel}>NET WEEKLY PAY</Text>

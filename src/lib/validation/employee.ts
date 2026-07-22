@@ -10,6 +10,9 @@ const money = z
   .number({ message: "Enter a valid amount" })
   .min(0, "Must be zero or more")
   .max(9_999_999, "Too large");
+// A daily-wage employee with ₱0 pay isn't meaningful — almost always a
+// data-entry mistake.
+const moneyPositive = money.min(0.01, "Must be greater than zero");
 
 export const employeeSchema = z.object({
   first_name: z.string().trim().min(1, "First name is required").max(120),
@@ -21,7 +24,7 @@ export const employeeSchema = z.object({
   sss_number: text,
   philhealth_number: text,
   pagibig_number: text,
-  daily_wage: money,
+  daily_wage: moneyPositive,
   overtime_fee: money,
   food_allowance_per_day: money,
   sleep_allowance_per_day: money,

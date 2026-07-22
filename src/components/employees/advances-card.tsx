@@ -140,9 +140,9 @@ export function AdvanceDialog({
               <Label htmlFor="adv-start">Start date</Label>
               <Input id="adv-start" type="date" {...register("start_date")} />
             </div>
-            {(errors.total_advance || errors.current_balance) && (
+            {(errors.total_advance || errors.current_balance || errors.start_date) && (
               <p className="text-xs text-destructive">
-                {errors.total_advance?.message ?? errors.current_balance?.message}
+                {errors.total_advance?.message ?? errors.current_balance?.message ?? errors.start_date?.message}
               </p>
             )}
           </div>

@@ -147,6 +147,12 @@ export function EmployeeForm({
   const [leaveSaving, setLeaveSaving] = useState(false);
   const pendingHrefRef = useRef<string | null>(null);
 
+  // Deactivation warning: updateEmployee returns {warning} instead of saving
+  // when this employee still has money owed or a draft-run entry. The
+  // pending values are stashed so "Deactivate anyway" can resubmit as-is.
+  const [deactivateWarning, setDeactivateWarning] = useState<string | null>(null);
+  const pendingValuesRef = useRef<EmployeeInput | null>(null);
+
   useEffect(() => {
     function onDocumentClick(e: MouseEvent) {
       if (!isDirtyRef.current) return;
@@ -175,11 +181,19 @@ export function EmployeeForm({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
-  async function performSave(values: EmployeeInput): Promise<{ id: string } | null> {
-    const res = isEdit ? await updateEmployee(employee!.id, values) : await createEmployee(values);
+  async function performSave(
+    values: EmployeeInput,
+    confirmDeactivate = false
+  ): Promise<{ id: string } | { warning: string } | null> {
+    const res = isEdit
+      ? await updateEmployee(employee!.id, values, confirmDeactivate)
+      : await createEmployee(values);
     if ("error" in res) {
       toast.error(res.error);
       return null;
+    }
+    if ("warning" in res) {
+      return { warning: res.warning };
     }
     toast.success(isEdit ? "Employee updated." : "Employee added.");
     return { id: res.id };
@@ -189,6 +203,23 @@ export function EmployeeForm({
     startTransition(async () => {
       const result = await performSave(values);
       if (!result) return;
+      if ("warning" in result) {
+        pendingValuesRef.current = values;
+        setDeactivateWarning(result.warning);
+        return;
+      }
+      router.push(isEdit ? `/employees/${result.id}` : "/employees");
+      router.refresh();
+    });
+  }
+
+  function confirmDeactivateAndSave() {
+    const values = pendingValuesRef.current;
+    if (!values) return;
+    startTransition(async () => {
+      const result = await performSave(values, true);
+      setDeactivateWarning(null);
+      if (!result || "warning" in result) return;
       router.push(isEdit ? `/employees/${result.id}` : "/employees");
       router.refresh();
     });
@@ -211,6 +242,12 @@ export function EmployeeForm({
         setLeaveSaving(true);
         const result = await performSave(values);
         setLeaveSaving(false);
+        if (result && "warning" in result) {
+          toast.warning(
+            "This employee still has money owed or in-progress payroll — save from the form directly to confirm deactivation."
+          );
+          return;
+        }
         setLeaveDialogOpen(false);
         if (!result) return;
         const href = pendingHrefRef.current;
@@ -398,6 +435,39 @@ export function EmployeeForm({
             <Button type="button" onClick={handleSaveAndLeave} disabled={leaveSaving}>
               {leaveSaving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deactivateWarning)}
+        onOpenChange={(open) => {
+          if (!open) setDeactivateWarning(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate this employee?</DialogTitle>
+            <DialogDescription>{deactivateWarning}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDeactivateWarning(null)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmDeactivateAndSave}
+              disabled={pending}
+            >
+              {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Deactivate anyway
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -15,12 +15,20 @@ const fail = (msg) => {
   issues++;
 };
 
-// 1) Entry arithmetic: net = gross - total_deductions, and total_deductions is
-//    the sum of its parts; advance_allocations sum to total_advance_deduction.
+// 1) Entry arithmetic: net = gross - total_deductions + shortfall_covered
+//    (shortfall_covered is an advance issued to the employee, not a
+//    deduction, so it's kept separate from total_deductions entirely — see
+//    coverShortfallWithAdvance); total_deductions is the sum of its parts;
+//    advance_allocations sum to total_advance_deduction.
 const { data: entries } = await c.from("payroll_entries").select("*");
 for (const e of entries) {
-  if (!near(e.net_weekly_pay, e.gross_weekly_salary - e.total_deductions))
-    fail(`entry ${e.id}: net != gross - deductions`);
+  if (
+    !near(
+      e.net_weekly_pay,
+      e.gross_weekly_salary - e.total_deductions + Number(e.shortfall_covered ?? 0)
+    )
+  )
+    fail(`entry ${e.id}: net != gross - deductions + shortfall_covered`);
   const parts =
     Number(e.sss_contribution) +
     Number(e.pagibig_contribution) +

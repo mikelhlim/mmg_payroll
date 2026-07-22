@@ -192,7 +192,12 @@ export function ComputeForm({
         return;
       }
       savedSigRef.current = JSON.stringify(v);
-      setShortfallState(null);
+      // The server preserves a prior shortfall-cover when nothing that
+      // matters has changed (see savePayrollEntry) — mirror whatever it
+      // decided instead of assuming a plain save always clears it.
+      setShortfallState(
+        res.shortfallCovered > 0 ? { amount: res.shortfallCovered, valuesSig: JSON.stringify(v) } : null
+      );
       if (res.isNetNegative) {
         setSavedNegative(true);
         toast.warning("Saved, but net pay is negative — please review.");
@@ -215,7 +220,7 @@ export function ComputeForm({
     }
     toast.success(
       res.foldedIntoExisting
-        ? `Covered a ${formatPHP(res.shortfall)} shortfall by adding it to an existing advance (5-advance limit reached).`
+        ? `Covered a ${formatPHP(res.shortfall)} shortfall by adding it to an existing advance.`
         : `Covered a ${formatPHP(res.shortfall)} shortfall with a new advance.`
     );
     savedSigRef.current = JSON.stringify(values);
@@ -526,6 +531,7 @@ export function ComputeForm({
             <div className="my-1 border-t" />
             <Line label="Gross weekly" value={formatPHP(display.gross_weekly_salary)} strong />
             <div className="my-1 border-t" />
+            <p className="text-sm font-semibold text-muted-foreground">Deductions</p>
             {sssLoan && <Line label="SSS loan" value={`− ${formatPHP(display.sss_loan_payment)}`} />}
             {pagibigLoan && (
               <Line label="Pag-IBIG loan" value={`− ${formatPHP(display.pagibig_loan_payment)}`} />
@@ -537,10 +543,13 @@ export function ComputeForm({
               strong
             />
             {shortfallCoveredNow && (
-              <Line
-                label="Shortfall covered by advance"
-                value={`+ ${formatPHP(shortfallAmountShown)}`}
-              />
+              <>
+                <div className="my-1 border-t" />
+                <Line
+                  label="Advance due to Shortfall"
+                  value={`+ ${formatPHP(shortfallAmountShown)}`}
+                />
+              </>
             )}
             <div className="my-1 border-t" />
             <div

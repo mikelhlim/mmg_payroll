@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertAuthenticated } from "@/lib/auth-role";
 import { logTransaction } from "@/lib/transaction-log";
+import { formatPHP } from "@/lib/money";
 import { employeeSchema, type EmployeeInput } from "@/lib/validation/employee";
 
-export type EmployeeActionResult = { error: string } | { ok: true; id: string };
+export type EmployeeActionResult =
+  | { error: string }
+  | { warning: string }
+  | { ok: true; id: string };
 
 // numeric(12,2) — normalize to 2 decimals before persisting.
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -69,7 +73,8 @@ export async function createEmployee(raw: EmployeeInput): Promise<EmployeeAction
 
 export async function updateEmployee(
   id: string,
-  raw: EmployeeInput
+  raw: EmployeeInput,
+  confirm = false
 ): Promise<EmployeeActionResult> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
@@ -77,6 +82,65 @@ export async function updateEmployee(
   const parsed = employeeSchema.safeParse(raw);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  // Deactivating doesn't delete anything, but the employee then disappears
+  // from active rosters (new payroll runs, the main list) — warn if they
+  // still have money owed or an uncomputed entry sitting in a draft run.
+  if (!parsed.data.is_active && !confirm) {
+    const { data: current } = await supabase
+      .from("employees")
+      .select("is_active")
+      .eq("id", id)
+      .maybeSingle();
+    if (current?.is_active) {
+      const [{ data: loans }, { data: advances }, { data: entries }] = await Promise.all([
+        supabase.from("loans").select("loan_type, current_balance").eq("employee_id", id),
+        supabase
+          .from("advances")
+          .select("current_balance")
+          .eq("employee_id", id)
+          .eq("is_active", true),
+        supabase
+          .from("payroll_entries")
+          .select("id, payroll_periods(status)")
+          .eq("employee_id", id),
+      ]);
+
+      const parts: string[] = [];
+      const outstandingLoans = (loans ?? []).filter((l) => l.current_balance > 0);
+      if (outstandingLoans.length) {
+        parts.push(
+          outstandingLoans
+            .map((l) => `an outstanding ${l.loan_type} loan (${formatPHP(l.current_balance)})`)
+            .join(" and ")
+        );
+      }
+      const outstandingAdvances = (advances ?? []).filter((a) => a.current_balance > 0);
+      if (outstandingAdvances.length) {
+        const total = outstandingAdvances.reduce((s, a) => s + a.current_balance, 0);
+        parts.push(
+          `${outstandingAdvances.length} active advance${outstandingAdvances.length === 1 ? "" : "s"} totaling ${formatPHP(total)}`
+        );
+      }
+      type EntryWithPeriod = { payroll_periods: { status: string }[] | { status: string } | null };
+      const draftEntryCount = (entries ?? []).filter((e) => {
+        const p = (e as EntryWithPeriod).payroll_periods;
+        const status = Array.isArray(p) ? p[0]?.status : p?.status;
+        return status === "draft";
+      }).length;
+      if (draftEntryCount > 0) {
+        parts.push(
+          `${draftEntryCount} ${draftEntryCount === 1 ? "entry" : "entries"} in a draft payroll run`
+        );
+      }
+
+      if (parts.length > 0) {
+        return {
+          warning: `This employee still has ${parts.join(", ")}. Deactivating won't delete these, but they'll disappear from active rosters. Proceed anyway?`,
+        };
+      }
+    }
   }
 
   const { error } = await supabase.from("employees").update(toRow(parsed.data)).eq("id", id);
