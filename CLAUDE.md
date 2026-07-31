@@ -14,7 +14,9 @@ knowledge of Next.js APIs.
 An in-house weekly payroll system for a Philippine daily-wage workforce (back-office only — there
 is no employee self-service). Staff manage employee profiles, run payroll for a period
 employee-by-employee with live net-pay computation, finalize atomically (drawing down loan/advance
-balances), and generate payslip PDFs. The UI/app title is "MMG HR and Payroll System";
+balances), and generate payslip PDFs. Employees can be assigned to a department; the employee list
+and payroll processing order (roster, Prev/Next stepper, payslip PDF) are grouped/ordered by
+department. The UI/app title is "MMG HR and Payroll System";
 [README.md](README.md) still opens with the project's original name, "PayDay — HR & Payroll
 Computation System" — same codebase, not out of date otherwise.
 
@@ -88,9 +90,9 @@ in the wipe RPC's `is_admin()` check — not in RLS.
 
 ### Server actions
 All mutations live in `src/lib/actions/*.ts` (`"use server"`), one file per domain area
-(`employees`, `payroll`, `obligations` (loans/advances), `admin`, `auth`). Common shape: create the
-SSR client → `assertAuthenticated`/`assertAdmin` → validate input with a zod schema from
-`src/lib/validation/*` → mutate → `logTransaction(...)` (best-effort audit write, see below) →
+(`employees`, `payroll`, `obligations` (loans/advances), `departments`, `admin`, `auth`). Common
+shape: create the SSR client → `assertAuthenticated`/`assertAdmin` → validate input with a zod
+schema from `src/lib/validation/*` → mutate → `logTransaction(...)` (best-effort audit write) →
 `revalidatePath(...)`. Actions return discriminated result objects (`{ error }` /
 `{ warning }` / `{ ok: true, ... }`) rather than throwing, so forms can render inline messages;
 some destructive/ambiguous actions (deactivating an employee with open balances, creating an
@@ -99,22 +101,25 @@ overlapping payroll period) take a `confirm` flag and return a `warning` on the 
 ### Payroll computation pipeline
 1. **`src/lib/payroll/calculator.ts`** — pure, I/O-free function `computePayroll()`; the single
    source of truth for payroll math, with the business rules spelled out in its header comment
-   (food allowance excludes overtime days, sleep allowance is independent of days worked, leave is
-   unpaid, statutory government contributions are no longer collected, net pay of exactly ₱0 is a
-   normal outcome and only a negative net blocks finalize). Directly unit-tested in
-   `calculator.test.ts`.
+   (food allowance excludes overtime days, sleep allowance is independent of days worked *and may
+   exceed it* — unlike overtime days, which is capped at days worked — leave is unpaid, statutory
+   government contributions are no longer collected, net pay of exactly ₱0 is a normal outcome and
+   only a negative net blocks finalize). Directly unit-tested in `calculator.test.ts`.
 2. **`src/lib/payroll/build-entry.ts`** — `buildEntryRow()` wraps the calculator for one employee:
    snapshots the employee's current rates (so historical payslips don't change if the profile is
    edited later), caps loan repayments at the loan's balance *and* original principal, caps advance
    allocations at each advance's balance, and shapes the result into the `payroll_entries` row.
    Pure, so it runs identically server-side and could back a client-side live preview.
 3. **`src/lib/actions/payroll.ts`** — `savePayrollEntry` persists a draft entry (upsert on
-   `(period_id, employee_id)`). `coverShortfallWithAdvance` resolves a negative net pay by issuing
-   the employee a new advance for the exact shortfall (or topping up an existing one), zeroing the
-   period's net pay; it's idempotent per period (re-invoking tops up rather than duplicating) and
-   only targets the *most recent* advance if the 5-advance cap (`MAX_ADVANCES` in
-   `validation/obligations.ts`) is already reached. `finalizePeriod`/`reopenPeriod` call the RPCs
-   below.
+   `(period_id, employee_id)`) and takes a 4th `notes` argument: if it differs from the employee's
+   current `notes`, the same call also updates `employees.notes` and logs a separate audit entry
+   (only when it actually changed, so routine saves don't spam the log) — one Save button in the
+   compute-form UI, two writes/log entries when notes changed. `coverShortfallWithAdvance` resolves
+   a negative net pay by issuing the employee a new advance for the exact shortfall (or topping up
+   an existing one), zeroing the period's net pay; it's idempotent per period (re-invoking tops up
+   rather than duplicating) and only targets the *most recent* advance if the 5-advance cap
+   (`MAX_ADVANCES` in `validation/obligations.ts`) is already reached. `finalizePeriod`/
+   `reopenPeriod` call the RPCs below.
 4. **`finalize_payroll_period(p_period_id)`** (Postgres RPC, `SECURITY DEFINER`, in
    `supabase/schema.sql` / `supabase/migrations/`) — the atomic commit point. Re-validates
    `days_worked + days_on_leave` equals the period length and that no entry has negative net pay,
@@ -123,6 +128,20 @@ overlapping payroll period) take a `confirm` flag and return a `warning` on the 
 5. **`reopen_payroll_period(p_period_id)`** — the inverse, for amendments: reverses every
    loan/advance payment for the period, deletes the payment-history rows, and flips the period back
    to `draft` with `version` incremented and `amended_at` set.
+
+### Departments
+`departments` (id, name, `sort_order`) is a small admin-managed table — create/rename/reorder/
+delete at `/admin/departments` (`src/components/admin/department-management.tsx`,
+`src/lib/actions/departments.ts`; reorder swaps `sort_order` between adjacent rows via two
+sequential updates, deliberately with no unique constraint on that column so the swap can't
+transiently collide). `employees.department_id` is a nullable FK (`on delete set null` — deleting a
+department never deletes employees, just unassigns them; the delete action warns first if any are
+still assigned). `src/lib/departments.ts` exports `sortEmployeesByDepartment`/`groupByDepartment`
+(order: department `sort_order`, then employee last name; unassigned employees sort last) — the
+single source of truth for department ordering, reused by the employee list
+(`employee-list.tsx`, rendered as department-grouped sections with a count badge each), the payroll
+roster and Prev/Next stepper (`payroll/[id]/page.tsx`, `payroll/[id]/[employeeId]/page.tsx`), and
+the payslip PDF (`payslip-document.tsx`).
 
 ### Money handling
 DB money columns are `numeric(12,2)`. The app never does arithmetic in floats/pesos — everything
@@ -138,11 +157,11 @@ schema.sql is kept as a convenience for seeding a brand-new database. When chang
 new timestamped file under `supabase/migrations/` (see the existing ones for the pattern) rather
 than only editing `schema.sql`.
 
-RLS on every domain table is a single blanket policy — any authenticated user (admin or staff) can
-read/write (`*_authenticated_all`, `using (public.is_authenticated())`). There is no per-row
-ownership model. Integrity is instead enforced by a mix of:
-- DB `CHECK` constraints (non-negative money/day columns, `sleep_days`/`overtime_days` ≤
-  `days_worked`);
+RLS on every domain table (including `departments`) is a single blanket policy — any authenticated
+user (admin or staff) can read/write (`*_authenticated_all`, `using (public.is_authenticated())`).
+There is no per-row ownership model. Integrity is instead enforced by a mix of:
+- DB `CHECK` constraints (non-negative money/day columns, `overtime_days` ≤ `days_worked` —
+  `sleep_days` has no such constraint; it's independent of `days_worked` and may exceed it);
 - triggers for cross-row/cross-table rules a plain `CHECK` can't express
   (`enforce_max_active_advances` caps an employee at 5 active advances;
   `enforce_loan_payment_caps` blocks a repayment exceeding a loan's balance or original principal);
@@ -167,8 +186,8 @@ outside the app, `scripts/render-pdf.mts` renders directly to a file.
 
 ### Types
 `src/lib/types.ts` hand-mirrors the `payroll_entries`/`employees`/`advances`/`loans`/
-`payroll_periods` row shapes from `supabase/schema.sql` — there's no generated-types step. Keep
-this file in sync manually when the schema changes.
+`payroll_periods`/`departments` row shapes from `supabase/schema.sql` — there's no generated-types
+step. Keep this file in sync manually when the schema changes.
 
 ### UI
 shadcn/ui components (`components.json`: `base-nova` style, `base-ui/react` primitives, neutral

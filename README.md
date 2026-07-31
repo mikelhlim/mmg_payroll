@@ -10,15 +10,22 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
 ## Features
 
 - **Auth** — email/password (Supabase), forced password change on first login, admin/staff roles.
-- **Employees** — full profile (names, nickname, birthdate, employment date, gov't IDs),
-  compensation (daily wage, daily overtime fee, food/sleep allowance), weekly statutory
-  contribution defaults, SSS/Pag-IBIG loans, and up to 5 cash advances.
-- **Payroll** — weekly runs; per-employee compute with a live breakdown; alerts when net ≤ ₱0;
-  atomic finalize (`finalize_payroll_period` RPC) that records payslips and decrements every
-  loan/advance balance with payment history.
-- **Payslip PDF** — one payslip per employee page + a company summary page with the grand total.
+- **Employees** — full profile (names, nickname, birthdate, employment date, gov't IDs, a free-text
+  notes field), compensation (daily wage, daily overtime fee, food/sleep allowance), an optional
+  department assignment, SSS/Pag-IBIG loans, and up to 5 cash advances.
+- **Departments** — organize employees into departments with a managed processing order (Admin →
+  Departments: create/rename/reorder/delete); the employee list and payroll processing order
+  (roster, stepper, payslip PDF) all follow that order, with unassigned employees listed last.
+- **Payroll** — weekly runs processed in department order; per-employee compute with a live
+  breakdown (sleep days are independent of days worked and may exceed it; overtime days may not);
+  a negative net pay blocks finalize (net = ₱0 is fine) and can be resolved in-flow by issuing an
+  advance for the shortfall; atomic finalize (`finalize_payroll_period` RPC) that records payslips
+  and decrements every loan/advance balance with payment history.
+- **Payslip PDF** — one payslip per employee page + a company summary page with the grand total,
+  in department order.
 - **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history.
-- **Admin** — user management (add/change role/delete) and "Delete all data except admin".
+- **Admin** — user management (add/change role/delete), department management, an audit log of
+  every mutation (`/admin/logs`), and "Delete all data except admin".
 
 Payroll math is a pure, unit-tested module (`src/lib/payroll/calculator.ts`); all money is
 computed in integer centavos to avoid floating-point drift.
@@ -47,7 +54,8 @@ npm run seed:admin
 ```
 
 Creates the admin from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env.local`, forced to
-change the password on first login.
+change the password on first login. Refuses to touch an account that already exists unless run
+with `--force` (or `FORCE_RESEED=1`), so re-running it later won't reset a live admin's password.
 
 ### 4. Run
 
