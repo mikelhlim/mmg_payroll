@@ -33,8 +33,8 @@ export default async function DashboardPage() {
 
   const stats = [
     { label: "Active employees", value: employeeCount, icon: Users, href: "/employees", tint: "text-primary bg-primary/10" },
-    { label: "Active advances", value: activeAdvanceCount, icon: HandCoins, href: "/employees", tint: "text-chart-3 bg-chart-3/10" },
-    { label: "Open loans", value: openLoanCount, icon: Wallet, href: "/employees", tint: "text-chart-5 bg-chart-5/10" },
+    { label: "Active advances", value: activeAdvanceCount, icon: HandCoins, href: "/employees?filter=advances", tint: "text-chart-3 bg-chart-3/10" },
+    { label: "Open loans", value: openLoanCount, icon: Wallet, href: "/employees?filter=loans", tint: "text-chart-5 bg-chart-5/10" },
     { label: "Payroll runs", value: finalizedPeriodCount, icon: CalendarDays, href: "/payroll", tint: "text-chart-2 bg-chart-2/10" },
   ];
 

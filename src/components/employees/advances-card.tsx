@@ -40,7 +40,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { HandCoins, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, HandCoins, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 // The first keystroke in a 0-valued number field should replace it outright
 // rather than requiring the user to clear it first.
@@ -59,11 +59,13 @@ export function AdvanceDialog({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [warning, setWarning] = useState<string | null>(null);
   const isEdit = Boolean(advance);
 
   const {
     register,
     handleSubmit,
+    getValues,
     reset,
     setValue,
     formState: { errors, dirtyFields },
@@ -90,16 +92,21 @@ export function AdvanceDialog({
     },
   });
 
-  function onSubmit(values: AdvanceInput) {
+  function onSubmit(values: AdvanceInput, confirm = false) {
     startTransition(async () => {
       const res = isEdit
-        ? await updateAdvance(advance!.id, employeeId, values)
+        ? await updateAdvance(advance!.id, employeeId, values, confirm)
         : await createAdvance(employeeId, values);
       if ("error" in res) {
         toast.error(res.error);
         return;
       }
+      if ("warning" in res) {
+        setWarning(res.warning);
+        return;
+      }
       toast.success(isEdit ? "Advance updated." : "Advance added.");
+      setWarning(null);
       setOpen(false);
       if (!isEdit) reset({ ...advanceDefaults, start_date: todayISO() });
       router.refresh();
@@ -107,7 +114,13 @@ export function AdvanceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setWarning(null);
+      }}
+    >
       <DialogTrigger render={trigger as React.ReactElement} />
       <DialogContent>
         {/* Dialog content is portalled to document.body, but React still
@@ -117,7 +130,7 @@ export function AdvanceDialog({
         <form
           onSubmit={(e) => {
             e.stopPropagation();
-            handleSubmit(onSubmit)(e);
+            handleSubmit((v) => onSubmit(v, false))(e);
           }}
         >
           <DialogHeader>
@@ -157,12 +170,30 @@ export function AdvanceDialog({
                 {errors.total_advance?.message ?? errors.current_balance?.message ?? errors.start_date?.message}
               </p>
             )}
+            {warning && (
+              <div className="flex items-start gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{warning}</span>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={pending}>
-              {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              {isEdit ? "Save changes" : "Add advance"}
-            </Button>
+            {warning ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                onClick={() => onSubmit(getValues(), true)}
+              >
+                {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Proceed anyway
+              </Button>
+            ) : (
+              <Button type="submit" disabled={pending}>
+                {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                {isEdit ? "Save changes" : "Add advance"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

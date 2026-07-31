@@ -29,9 +29,36 @@ const { data: departments } = await c
   .order("sort_order", { ascending: true })
   .order("name", { ascending: true });
 
+const employeeIds = [...new Set((entries ?? []).map((e) => e.employee_id))];
+const { data: loanRows } = await c
+  .from("loans")
+  .select("employee_id, loan_type, current_balance")
+  .in("employee_id", employeeIds);
+const { data: advanceRows } = await c
+  .from("advances")
+  .select("employee_id, current_balance")
+  .eq("is_active", true)
+  .in("employee_id", employeeIds);
+const sssBalanceByEmp = new Map();
+const pagibigBalanceByEmp = new Map();
+for (const l of loanRows ?? []) {
+  if (l.loan_type === "SSS") sssBalanceByEmp.set(l.employee_id, l.current_balance);
+  if (l.loan_type === "PAGIBIG") pagibigBalanceByEmp.set(l.employee_id, l.current_balance);
+}
+const advBalanceByEmp = new Map();
+for (const a of advanceRows ?? []) {
+  advBalanceByEmp.set(a.employee_id, (advBalanceByEmp.get(a.employee_id) ?? 0) + a.current_balance);
+}
+
 const rows = (entries ?? []).map((e) => {
   const { employees, ...entry } = e;
-  return { entry, employee: employees };
+  return {
+    entry,
+    employee: employees,
+    sssLoanBalance: sssBalanceByEmp.get(employees.id) ?? 0,
+    pagibigLoanBalance: pagibigBalanceByEmp.get(employees.id) ?? 0,
+    advancesBalance: advBalanceByEmp.get(employees.id) ?? 0,
+  };
 });
 
 await renderToFile(

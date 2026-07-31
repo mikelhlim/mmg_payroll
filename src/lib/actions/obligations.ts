@@ -133,11 +133,14 @@ export async function createAdvance(employeeId: string, raw: AdvanceInput): Prom
   return { ok: true };
 }
 
+export type UpdateAdvanceResult = { error: string } | { warning: string } | { ok: true };
+
 export async function updateAdvance(
   advanceId: string,
   employeeId: string,
-  raw: AdvanceInput
-): Promise<Result> {
+  raw: AdvanceInput,
+  confirm = false
+): Promise<UpdateAdvanceResult> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
 
@@ -169,26 +172,65 @@ export async function updateAdvance(
     }
   }
 
+  const newBalance = round2(v.current_balance);
+  const previousBalance = existing?.current_balance ?? null;
+  const balanceChanged = previousBalance !== null && newBalance !== previousBalance;
+
+  // A balance edit on an advance that already has real payroll payment
+  // history would otherwise silently desync the Employee Report's "Advances
+  // balance" card (reads this live value) from its "Advance Payment History"
+  // card (reads the last payment's balance_after snapshot) — precisely the
+  // confusion that looks like a double-deduction bug but isn't one. Require
+  // confirmation, then write a reconciling adjustment row so the two always
+  // agree again (payroll_entry_id null marks it as a manual adjustment, not
+  // a payroll-driven deduction).
+  let hasPaymentHistory = false;
+  if (balanceChanged) {
+    const { count } = await supabase
+      .from("payroll_advance_payments")
+      .select("*", { count: "exact", head: true })
+      .eq("advance_id", advanceId);
+    hasPaymentHistory = (count ?? 0) > 0;
+    if (hasPaymentHistory && !confirm) {
+      return {
+        warning: `This advance already has payroll payment history. Changing the balance from ${formatPHP(
+          previousBalance!
+        )} to ${formatPHP(newBalance)} will record a manual adjustment entry in the payment history so reports stay consistent. Continue?`,
+      };
+    }
+  }
+
   const { error } = await supabase
     .from("advances")
     .update({
       label: nullify(v.label),
       start_date: nullify(v.start_date),
       total_advance: round2(v.total_advance),
-      current_balance: round2(v.current_balance),
+      current_balance: newBalance,
       is_active: willBeActive,
     })
     .eq("id", advanceId);
   if (error) return { error: error.message };
 
+  if (balanceChanged && hasPaymentHistory) {
+    const { error: adjError } = await supabase.from("payroll_advance_payments").insert({
+      payroll_entry_id: null,
+      advance_id: advanceId,
+      amount: round2(newBalance - previousBalance!),
+      balance_after: newBalance,
+      note: `Manual balance adjustment (was ${formatPHP(previousBalance!)})`,
+    });
+    if (adjError) return { error: adjError.message };
+  }
+
   await logTransaction(supabase, {
     action: "update",
     entity: "advance",
     entity_id: employeeId,
-    summary: `Updated advance "${nullify(v.label) ?? "Advance"}" — balance ${formatPHP(
-      v.current_balance
-    )}`,
-    details: { previous_balance: existing?.current_balance ?? null, new_balance: v.current_balance },
+    summary: `Updated advance "${nullify(v.label) ?? "Advance"}" — balance ${formatPHP(newBalance)}${
+      balanceChanged && hasPaymentHistory ? " (reconciled with payment history)" : ""
+    }`,
+    details: { previous_balance: previousBalance, new_balance: newBalance },
   });
 
   revalidatePath(`/employees/${employeeId}`);

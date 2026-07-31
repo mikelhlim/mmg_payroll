@@ -34,11 +34,40 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (error) return new Response(error.message, { status: 500 });
   const departments = (departmentRows ?? []) as Department[];
 
+  // Remaining balances shown on the payslip are live, not a finalize-time
+  // snapshot (see the comment on PayslipRow) — fetched fresh for whichever
+  // employees are in this period.
+  const employeeIds = [...new Set((entries ?? []).map((e) => e.employee_id as string))];
+  const [{ data: loanRows }, { data: advanceRows }] = await Promise.all([
+    supabase.from("loans").select("employee_id, loan_type, current_balance").in("employee_id", employeeIds),
+    supabase
+      .from("advances")
+      .select("employee_id, current_balance")
+      .eq("is_active", true)
+      .in("employee_id", employeeIds),
+  ]);
+  const sssBalanceByEmp = new Map<string, number>();
+  const pagibigBalanceByEmp = new Map<string, number>();
+  for (const l of loanRows ?? []) {
+    if (l.loan_type === "SSS") sssBalanceByEmp.set(l.employee_id, l.current_balance);
+    if (l.loan_type === "PAGIBIG") pagibigBalanceByEmp.set(l.employee_id, l.current_balance);
+  }
+  const advBalanceByEmp = new Map<string, number>();
+  for (const a of advanceRows ?? []) {
+    advBalanceByEmp.set(a.employee_id, (advBalanceByEmp.get(a.employee_id) ?? 0) + a.current_balance);
+  }
+
   const rows: PayslipRow[] = (entries ?? [])
     .filter((e) => e.employees)
     .map((e) => {
       const { employees, ...entry } = e as PayrollEntry & { employees: Employee };
-      return { entry: entry as PayrollEntry, employee: employees as Employee };
+      return {
+        entry: entry as PayrollEntry,
+        employee: employees as Employee,
+        sssLoanBalance: sssBalanceByEmp.get(employees.id) ?? 0,
+        pagibigLoanBalance: pagibigBalanceByEmp.get(employees.id) ?? 0,
+        advancesBalance: advBalanceByEmp.get(employees.id) ?? 0,
+      };
     });
 
   if (rows.length === 0) {

@@ -24,7 +24,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Pencil, Search, Trash2, Users } from "lucide-react";
+import { Pencil, Search, Trash2, Users, X } from "lucide-react";
+
+export type EmployeeFilter = {
+  type: "advances" | "loans";
+  /** employee_id -> total balance (summed across their active advances, or
+   * their SSS + Pag-IBIG loans, whichever this filter is for). */
+  balances: Record<string, number>;
+};
 
 function initials(e: Employee) {
   return `${e.first_name[0] ?? ""}${e.last_name[0] ?? ""}`.toUpperCase();
@@ -84,7 +91,7 @@ function DeleteButton({ employee }: { employee: Employee }) {
   );
 }
 
-function EmployeeRow({ employee: e }: { employee: Employee }) {
+function EmployeeRow({ employee: e, balance }: { employee: Employee; balance?: number }) {
   return (
     <tr className="border-b last:border-0 hover:bg-muted/30">
       <td className="px-4 py-3">
@@ -95,7 +102,9 @@ function EmployeeRow({ employee: e }: { employee: Employee }) {
           {fullName(e)}
         </Link>
       </td>
-      <td className="px-4 py-3 text-muted-foreground">{e.nickname ?? "—"}</td>
+      <td className="px-4 py-3 text-muted-foreground">
+        {balance !== undefined ? formatPHP(balance) : (e.nickname ?? "—")}
+      </td>
       <td className="px-4 py-3 tabular-nums">{formatPHP(e.daily_wage)}</td>
       <td className="px-4 py-3">
         <Badge variant={e.is_active ? "default" : "secondary"}>
@@ -118,7 +127,7 @@ function EmployeeRow({ employee: e }: { employee: Employee }) {
   );
 }
 
-function EmployeeCard({ employee: e }: { employee: Employee }) {
+function EmployeeCard({ employee: e, balance }: { employee: Employee; balance?: number }) {
   return (
     <Card>
       <CardContent className="flex items-center gap-3 p-4">
@@ -129,7 +138,7 @@ function EmployeeCard({ employee: e }: { employee: Employee }) {
           <div className="min-w-0">
             <div className="truncate font-medium">{fullName(e)}</div>
             <div className="text-xs text-muted-foreground">
-              {formatPHP(e.daily_wage)}/day
+              {balance !== undefined ? formatPHP(balance) : `${formatPHP(e.daily_wage)}/day`}
               {e.nickname ? ` · ${e.nickname}` : ""}
             </div>
           </div>
@@ -163,9 +172,11 @@ function GroupHeading({
 export function EmployeeList({
   employees,
   departments,
+  filter,
 }: {
   employees: Employee[];
   departments: Department[];
+  filter?: EmployeeFilter | null;
 }) {
   const [query, setQuery] = useState("");
 
@@ -180,11 +191,11 @@ export function EmployeeList({
   }, [employees, query]);
 
   const groups = useMemo(
-    () => groupByDepartment(filtered, departments, { hideEmpty: query.trim().length > 0 }),
-    [filtered, departments, query]
+    () => groupByDepartment(filtered, departments, { hideEmpty: query.trim().length > 0 || Boolean(filter) }),
+    [filtered, departments, query, filter]
   );
 
-  if (employees.length === 0) {
+  if (employees.length === 0 && !filter) {
     return (
       <Card className="animate-rise">
         <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
@@ -203,8 +214,22 @@ export function EmployeeList({
     );
   }
 
+  const filterLabel = filter?.type === "advances" ? "active advances" : "open loans";
+  const balanceColumnLabel = filter?.type === "advances" ? "Advance balance" : "Loan balance";
+
   return (
     <div className="space-y-4">
+      {filter && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm">
+          <span>
+            Showing only employees with <span className="font-medium">{filterLabel}</span>
+          </span>
+          <Link href="/employees" className="inline-flex items-center gap-1 text-primary hover:underline">
+            <X className="h-3.5 w-3.5" /> Clear filter
+          </Link>
+        </div>
+      )}
+
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -215,43 +240,49 @@ export function EmployeeList({
         />
       </div>
 
-      {groups.map((group) => (
-        <div key={group.department?.id ?? "none"} className="space-y-2">
-          <GroupHeading
-            name={group.department?.name ?? "No department"}
-            count={group.employees.length}
-          />
+      {employees.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No employees currently have {filterLabel}.
+        </p>
+      ) : (
+        groups.map((group) => (
+          <div key={group.department?.id ?? "none"} className="space-y-2">
+            <GroupHeading
+              name={group.department?.name ?? "No department"}
+              count={group.employees.length}
+            />
 
-          {/* Desktop table */}
-          <Card className="hidden overflow-hidden md:block">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Employee</th>
-                  <th className="px-4 py-3 font-medium">Nickname</th>
-                  <th className="px-4 py-3 font-medium">Daily wage</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.employees.map((e) => (
-                  <EmployeeRow key={e.id} employee={e} />
-                ))}
-              </tbody>
-            </table>
-          </Card>
+            {/* Desktop table */}
+            <Card className="hidden overflow-hidden md:block">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Employee</th>
+                    <th className="px-4 py-3 font-medium">{filter ? balanceColumnLabel : "Nickname"}</th>
+                    <th className="px-4 py-3 font-medium">Daily wage</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.employees.map((e) => (
+                    <EmployeeRow key={e.id} employee={e} balance={filter?.balances[e.id]} />
+                  ))}
+                </tbody>
+              </table>
+            </Card>
 
-          {/* Mobile cards */}
-          <div className="grid gap-3 md:hidden">
-            {group.employees.map((e) => (
-              <EmployeeCard key={e.id} employee={e} />
-            ))}
+            {/* Mobile cards */}
+            <div className="grid gap-3 md:hidden">
+              {group.employees.map((e) => (
+                <EmployeeCard key={e.id} employee={e} balance={filter?.balances[e.id]} />
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
 
-      {filtered.length === 0 && (
+      {query.trim().length > 0 && filtered.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">
           No employees match “{query}”.
         </p>

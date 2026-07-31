@@ -154,6 +154,7 @@ export function EmployeeForm({
     register,
     handleSubmit,
     control,
+    reset,
     formState: { errors, isDirty },
   } = useForm<EmployeeInput>({
     resolver: zodResolver(employeeSchema),
@@ -233,6 +234,11 @@ export function EmployeeForm({
         setDeactivateWarning(result.warning);
         return;
       }
+      // react-hook-form's isDirty compares against the defaultValues captured
+      // at mount — router.refresh() re-fetches server data but doesn't remount
+      // this client form, so without this, isDirty (and the leave-guard below)
+      // would stay stuck "dirty" forever after the very first successful save.
+      reset(values);
       router.push(isEdit ? `/employees/${result.id}` : "/employees");
       router.refresh();
     });
@@ -245,6 +251,7 @@ export function EmployeeForm({
       const result = await performSave(values, true);
       setDeactivateWarning(null);
       if (!result || "warning" in result) return;
+      reset(values);
       router.push(isEdit ? `/employees/${result.id}` : "/employees");
       router.refresh();
     });
@@ -275,6 +282,7 @@ export function EmployeeForm({
         }
         setLeaveDialogOpen(false);
         if (!result) return;
+        reset(values);
         const href = pendingHrefRef.current;
         if (href) router.push(href);
         router.refresh();

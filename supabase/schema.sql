@@ -181,14 +181,21 @@ create trigger trg_entries_updated_at
   before update on payroll_entries
   for each row execute function public.set_updated_at();
 
--- Payment history (written at finalize time) ---------------------------------
+-- Payment history (written at finalize time). payroll_entry_id is nullable:
+-- null marks a manual balance adjustment (not tied to a payroll run) — see
+-- 20260731120000_advance_balance_adjustments.sql / updateAdvance().
 create table if not exists payroll_advance_payments (
   id uuid primary key default gen_random_uuid(),
-  payroll_entry_id uuid not null references payroll_entries (id) on delete cascade,
+  payroll_entry_id uuid references payroll_entries (id) on delete cascade,
   advance_id uuid not null references advances (id) on delete restrict,
-  amount numeric(12, 2) not null default 0 check (amount >= 0),
+  amount numeric(12, 2) not null default 0,
   balance_after numeric(12, 2) not null default 0,
-  created_at timestamptz not null default now()
+  note text,
+  created_at timestamptz not null default now(),
+  constraint payroll_advance_payments_amount_check check (
+    (payroll_entry_id is not null and amount >= 0)
+    or (payroll_entry_id is null)
+  )
 );
 create index if not exists idx_adv_pay_entry on payroll_advance_payments (payroll_entry_id);
 create index if not exists idx_adv_pay_advance on payroll_advance_payments (advance_id);

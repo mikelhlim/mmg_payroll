@@ -2,6 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
 import { fullName } from "@/lib/types";
 import { formatPeriod } from "@/lib/payroll/period";
+import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
 
 // Helvetica (the PDF base font) has no ₱ glyph, so payslips print "PHP".
 function peso(n: number): string {
@@ -16,7 +17,16 @@ function dateRange(period: PayrollPeriod): string {
   return formatPeriod(period.period_start, period.period_end).replace(/–/g, "-");
 }
 
-export type PayslipRow = { entry: PayrollEntry; employee: Employee };
+// Balances are live ("as of now"), not a frozen finalize-time snapshot —
+// matching how the Employee Report's balance cards work, so a reprinted
+// payslip reflects the current standing rather than a stale one.
+export type PayslipRow = {
+  entry: PayrollEntry;
+  employee: Employee;
+  sssLoanBalance: number;
+  pagibigLoanBalance: number;
+  advancesBalance: number;
+};
 
 const styles = StyleSheet.create({
   page: { padding: 28, fontSize: 8, color: "#1e1b2e", fontFamily: "Helvetica" },
@@ -47,6 +57,7 @@ const styles = StyleSheet.create({
   label: { color: "#374151" },
   value: { fontFamily: "Helvetica" },
   formula: { fontSize: 5.5, color: "#9ca3af", marginTop: -0.5, marginBottom: 1 },
+  remaining: { fontSize: 5.5, color: "#9ca3af", textAlign: "right", marginTop: -0.5, marginBottom: 1 },
   columns: { flexDirection: "row", gap: 16 },
   col: { flex: 1 },
   totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2.5, marginTop: 2, borderTopWidth: 1, borderTopColor: "#e5e1f0" },
@@ -61,6 +72,9 @@ const styles = StyleSheet.create({
   sumName: { flex: 1 },
   sumDays: { width: 70, textAlign: "right" },
   sumNet: { width: 90, textAlign: "right" },
+  deptHead: { backgroundColor: "#f3f1fa", paddingVertical: 4, paddingHorizontal: 8, marginTop: 8 },
+  deptHeadText: { fontFamily: "Helvetica-Bold", fontSize: 7, color: "#6d4bd8" },
+  subtotalRow: { flexDirection: "row", paddingVertical: 5, paddingHorizontal: 8, backgroundColor: "#faf9fc", borderTopWidth: 1, borderTopColor: "#c9c3dd" },
   grand: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 8, marginTop: 4, borderTopWidth: 2, borderTopColor: "#6d4bd8" },
   footer: { position: "absolute", bottom: 20, left: 28, right: 28, fontSize: 8, color: "#9ca3af", textAlign: "center" },
 });
@@ -69,10 +83,14 @@ function Line({
   label,
   value,
   formula,
+  remaining,
 }: {
   label: string;
   value: string;
   formula?: string;
+  /** e.g. "Remaining balance: PHP 1,000.00" — the standing balance after this
+   * period's deduction, not the deduction itself. */
+  remaining?: string;
 }) {
   return (
     <View>
@@ -81,12 +99,21 @@ function Line({
         <Text style={styles.value}>{value}</Text>
       </View>
       {formula && <Text style={styles.formula}>{formula}</Text>}
+      {remaining && <Text style={styles.remaining}>{remaining}</Text>}
     </View>
   );
 }
 
 /** One self-contained payslip — rendered twice per page (see Payslip below). */
-function PayslipHalf({ entry, employee, period, copyLabel }: PayslipRow & { period: PayrollPeriod; copyLabel: string }) {
+function PayslipHalf({
+  entry,
+  employee,
+  sssLoanBalance,
+  pagibigLoanBalance,
+  advancesBalance,
+  period,
+  copyLabel,
+}: PayslipRow & { period: PayrollPeriod; copyLabel: string }) {
   const foodDays = Math.max(0, entry.days_worked - entry.overtime_days);
   const baseWage = entry.weekly_salary - entry.total_food_allowance - entry.total_sleep_allowance;
   const hasContributions =
@@ -155,9 +182,21 @@ function PayslipHalf({ entry, employee, period, copyLabel }: PayslipRow & { peri
               )}
             </>
           )}
-          <Line label="SSS loan" value={peso(entry.sss_loan_payment)} />
-          <Line label="Pag-IBIG loan" value={peso(entry.pagibig_loan_payment)} />
-          <Line label="Advances" value={peso(entry.total_advance_deduction)} />
+          <Line
+            label="SSS loan"
+            value={peso(entry.sss_loan_payment)}
+            remaining={`Remaining balance: ${peso(sssLoanBalance)}`}
+          />
+          <Line
+            label="Pag-IBIG loan"
+            value={peso(entry.pagibig_loan_payment)}
+            remaining={`Remaining balance: ${peso(pagibigLoanBalance)}`}
+          />
+          <Line
+            label="Advances"
+            value={peso(entry.total_advance_deduction)}
+            remaining={`Remaining balance: ${peso(advancesBalance)}`}
+          />
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total deductions</Text>
             <Text style={styles.totalLabel}>{peso(entry.total_deductions)}</Text>
@@ -181,19 +220,28 @@ function PayslipHalf({ entry, employee, period, copyLabel }: PayslipRow & { peri
   );
 }
 
-function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeriod }) {
+function Payslip({ period, ...row }: PayslipRow & { period: PayrollPeriod }) {
   return (
     <Page size="A4" style={styles.page}>
-      <PayslipHalf entry={entry} employee={employee} period={period} copyLabel="EMPLOYEE COPY" />
+      <PayslipHalf {...row} period={period} copyLabel="EMPLOYEE COPY" />
       <View style={styles.cutLine}>
         <Text style={styles.cutLabel}>- - - - - - - - - - - - - - CUT HERE - - - - - - - - - - - - - -</Text>
       </View>
-      <PayslipHalf entry={entry} employee={employee} period={period} copyLabel="COMPANY COPY" />
+      <PayslipHalf {...row} period={period} copyLabel="COMPANY COPY" />
 
       <Text style={styles.footer} render={({ pageNumber }) => `Page ${pageNumber} · Generated by MMG HR & Payroll on ${new Date().toLocaleDateString("en-PH")}`} fixed />
     </Page>
   );
 }
+
+// groupByDepartment/sortEmployeesByDepartment key off department_id/last_name
+// at the top level — lift them from `.employee` so a PayslipRow qualifies.
+type SortableRow = PayslipRow & { department_id: string | null; last_name: string };
+const toSortable = (r: PayslipRow): SortableRow => ({
+  ...r,
+  department_id: r.employee.department_id,
+  last_name: r.employee.last_name,
+});
 
 export function PayslipDocument({
   period,
@@ -205,20 +253,14 @@ export function PayslipDocument({
   departments: Department[];
 }) {
   // Same processing order as the roster/stepper: department, then name.
-  const deptOrderById = new Map(departments.map((d) => [d.id, d.sort_order]));
-  const deptRank = (r: PayslipRow) =>
-    r.employee.department_id
-      ? (deptOrderById.get(r.employee.department_id) ?? Number.MAX_SAFE_INTEGER)
-      : Number.MAX_SAFE_INTEGER;
-  const sorted = [...rows].sort(
-    (a, b) => deptRank(a) - deptRank(b) || fullName(a.employee).localeCompare(fullName(b.employee))
-  );
+  const sorted = sortEmployeesByDepartment(rows.map(toSortable), departments);
+  const groups = groupByDepartment(rows.map(toSortable), departments, { hideEmpty: true });
   const grandTotal = sorted.reduce((s, r) => s + r.entry.net_weekly_pay, 0);
 
   return (
     <Document title={`Payroll ${period.period_start} to ${period.period_end}`}>
       {sorted.map((r) => (
-        <Payslip key={r.entry.id} entry={r.entry} employee={r.employee} period={period} />
+        <Payslip key={r.entry.id} {...r} period={period} />
       ))}
 
       {/* Summary page */}
@@ -237,13 +279,29 @@ export function PayslipDocument({
           <Text style={styles.sumDays}>Days</Text>
           <Text style={styles.sumNet}>Net pay</Text>
         </View>
-        {sorted.map((r) => (
-          <View key={r.entry.id} style={styles.sumRow}>
-            <Text style={styles.sumName}>{fullName(r.employee)}</Text>
-            <Text style={styles.sumDays}>{r.entry.days_worked}</Text>
-            <Text style={styles.sumNet}>{peso(r.entry.net_weekly_pay)}</Text>
-          </View>
-        ))}
+        {groups.map((g) => {
+          const subtotal = g.employees.reduce((s, r) => s + r.entry.net_weekly_pay, 0);
+          return (
+            <View key={g.department?.id ?? "none"}>
+              <View style={styles.deptHead}>
+                <Text style={styles.deptHeadText}>{g.department?.name ?? "No department"}</Text>
+              </View>
+              {g.employees.map((r) => (
+                <View key={r.entry.id} style={styles.sumRow}>
+                  <Text style={styles.sumName}>{fullName(r.employee)}</Text>
+                  <Text style={styles.sumDays}>{r.entry.days_worked}</Text>
+                  <Text style={styles.sumNet}>{peso(r.entry.net_weekly_pay)}</Text>
+                </View>
+              ))}
+              <View style={styles.subtotalRow}>
+                <Text style={[styles.sumName, { fontFamily: "Helvetica-Bold" }]}>
+                  Subtotal ({g.employees.length})
+                </Text>
+                <Text style={[styles.sumNet, { fontFamily: "Helvetica-Bold" }]}>{peso(subtotal)}</Text>
+              </View>
+            </View>
+          );
+        })}
         <View style={styles.grand}>
           <Text style={[styles.sumName, { fontFamily: "Helvetica-Bold" }]}>
             TOTAL ({sorted.length} employees)

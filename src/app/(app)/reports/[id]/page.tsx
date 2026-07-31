@@ -30,8 +30,11 @@ type AdvancePayment = {
   id: string;
   amount: number;
   balance_after: number;
+  note: string | null;
+  created_at: string;
   advances: { label: string | null } | null;
-  payroll_entries: { payroll_periods: Period };
+  // Null for a manual balance adjustment — not tied to any payroll run.
+  payroll_entries: { payroll_periods: Period } | null;
 };
 
 function fmtDate(d: string | null) {
@@ -47,7 +50,7 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: employeeRow }, { data: loanRows }, { data: advanceRows }, { data: entryRows }, { data: loanPayRows }, { data: advPayRows }] =
+  const [{ data: employeeRow }, { data: loanRows }, { data: advanceRows }, { data: entryRows }, { data: loanPayRows }] =
     await Promise.all([
       supabase.from("employees").select("*").eq("id", id).maybeSingle(),
       supabase.from("loans").select("*").eq("employee_id", id),
@@ -61,16 +64,25 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
         .from("payroll_loan_payments")
         .select("*, payroll_entries!inner(employee_id, payroll_periods(id, period_start, period_end, finalized_at))")
         .eq("payroll_entries.employee_id", id),
-      supabase
-        .from("payroll_advance_payments")
-        .select("*, advances(label), payroll_entries!inner(employee_id, payroll_periods(id, period_start, period_end, finalized_at))")
-        .eq("payroll_entries.employee_id", id),
     ]);
 
   if (!employeeRow) notFound();
   const employee = employeeRow as Employee;
   const loans = (loanRows ?? []) as Loan[];
   const advances = (advanceRows ?? []) as Advance[];
+  const advanceIds = advances.map((a) => a.id);
+
+  // Queried separately (by advance_id, not via employee_id through
+  // payroll_entries) because a manual balance-adjustment row has no
+  // payroll_entry_id — an inner join through payroll_entries would silently
+  // drop those rows out of the report.
+  const { data: advPayRows } = advanceIds.length
+    ? await supabase
+        .from("payroll_advance_payments")
+        .select("*, advances(label), payroll_entries(payroll_periods(id, period_start, period_end, finalized_at))")
+        .in("advance_id", advanceIds)
+    : { data: [] as AdvancePayment[] };
+
   const entries = ((entryRows ?? []) as EntryWithPeriod[]).sort((a, b) =>
     b.payroll_periods.period_start.localeCompare(a.payroll_periods.period_start)
   );
@@ -79,11 +91,13 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
       a.payroll_entries.payroll_periods?.period_start ?? ""
     )
   );
-  const advancePayments = ((advPayRows ?? []) as unknown as AdvancePayment[]).sort((a, b) =>
-    (b.payroll_entries.payroll_periods?.period_start ?? "").localeCompare(
-      a.payroll_entries.payroll_periods?.period_start ?? ""
-    )
-  );
+  // Manual adjustments have no period — fall back to their own timestamp so
+  // they still sort into the right place in the timeline.
+  const advancePayments = ((advPayRows ?? []) as unknown as AdvancePayment[]).sort((a, b) => {
+    const bKey = b.payroll_entries?.payroll_periods?.period_start ?? b.created_at;
+    const aKey = a.payroll_entries?.payroll_periods?.period_start ?? a.created_at;
+    return bKey.localeCompare(aKey);
+  });
 
   const sssLoan = loans.find((l) => l.loan_type === "SSS");
   const pagibigLoan = loans.find((l) => l.loan_type === "PAGIBIG");
@@ -300,12 +314,12 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
                     <div className="min-w-0">
                       <p className="truncate font-medium">{p.advances?.label ?? "Advance"}</p>
                       <span className="text-xs text-muted-foreground">
-                        {p.payroll_entries.payroll_periods
+                        {p.payroll_entries?.payroll_periods
                           ? formatPeriod(
                               p.payroll_entries.payroll_periods.period_start,
                               p.payroll_entries.payroll_periods.period_end
                             )
-                          : "—"}
+                          : "Manual adjustment"}
                       </span>
                     </div>
                     <div className="text-right">
