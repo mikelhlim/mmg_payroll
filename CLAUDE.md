@@ -17,7 +17,10 @@ employee-by-employee with live net-pay computation, finalize atomically (drawing
 balances), and generate payslip PDFs. Employees can be assigned to a department; every screen that
 lists employees — the employee list, payroll roster, Reports period view, Prev/Next stepper, and
 the payslip PDF (including its company summary page, which subtotals per department) — is
-grouped/ordered by department. The UI/app title is "MMG HR and Payroll System";
+grouped/ordered by department. Staff can also enter a weekly **expense report** alongside each
+payroll run — line items grouped by an admin-managed expense type, rolled up with that week's
+payroll total into a grand total — with the same draft/finalize/amend lifecycle and its own PDF (see
+"Expense reports" below). The UI/app title is "MMG HR and Payroll System";
 [README.md](README.md) still opens with the project's original name, "PayDay — HR & Payroll
 Computation System" — same codebase, not out of date otherwise.
 
@@ -47,6 +50,7 @@ node --env-file=.env.local scripts/integrity-check.mjs                     # rec
 node --env-file=.env.local scripts/backup-data.mjs [outPath]               # dump all domain tables + auth users to JSON
 node --env-file=.env.local scripts/restore-data.mjs <backupPath>           # restore a JSON backup into the current project
 npx tsx --env-file=.env.local scripts/render-pdf.mts <periodId> <outPath>  # render one period's payslip PDF to a file, for inspection
+npx tsx --env-file=.env.local scripts/render-expense-pdf.mts <expensePeriodId> <outPath>  # same, for an expense report
 ```
 
 There are no integration/e2e tests. `npm test` covers only the pure calculation/validation modules
@@ -159,6 +163,51 @@ grouped, empty groups hidden) and swaps the nickname column for each employee's 
 loan tile's count is loan *records*, not people — one employee can hold both an SSS and a Pag-IBIG
 loan, so "3 open loans" can resolve to fewer than 3 people.
 
+### Expense reports
+One `expense_periods` row per payroll run (`payroll_period_id` is a unique, `on delete restrict`
+FK — `deletePeriod()` in `src/lib/actions/payroll.ts` pre-checks for an attached report and
+returns a friendly error rather than letting the FK fire raw), mirroring the payroll period
+lifecycle (draft → save → finalize, amend-to-reopen) but with **no RPC for finalize/reopen** —
+unlike payroll, an expense report has no balance side-effects, so a single `UPDATE` is already
+atomic. Line items (`expense_items`) are grouped by an admin-managed `expense_categories` lookup
+table (mirrors `departments`: name, `sort_order`, reorder via a two-row swap), seeded with four
+types (Mau Expenses, Mau GCash/Transfer, Hardware Expenses, Miscellaneous Expenses — the last with
+seeded `default_descriptions`). Managed at `/admin/expense-types`
+(`src/components/admin/expense-type-management.tsx`,
+`src/lib/actions/expense-categories.ts`). Deleting a type that has items on any report **archives**
+it (`is_active = false`) instead of hard-deleting, since `expense_items.category_id` is `on delete
+restrict` and past items are financial records — archived types disappear from new reports but
+still render on the reports that reference them (both the editor and the PDF filter categories as
+`is_active OR has items on this report`, duplicated in each entry point the same way the payslip
+PDF/route pair already duplicates its data-shaping).
+
+**Bug fixed same-day (2026-08-01):** the initial migration gave `expense_periods` a
+`before update` `set_updated_at` trigger but no `updated_at` column, so every `UPDATE` on the table
+(finalize, reopen) failed with `record "new" has no field "updated_at"` — caught during live-browser
+verification by checking the DB row directly after a Finalize click. Fixed by migration
+`20260801010000_fix_expense_periods_updated_at.sql`; `expense_items` and `expense_categories` both
+already had the column, only `expense_periods` was missing it.
+
+**Total Expenses is deliberately always live**, not a finalize-time snapshot: the Current Payroll
+Total line is `sum(payroll_entries.net_weekly_pay)` for the linked run, re-read on every render —
+amending the payroll run after the expense report is finalized changes its grand total and its
+reprinted PDF, matching how the payslip "Remaining balance" lines already behave. Finalizing an
+expense report while its linked payroll run is still a draft is *allowed*, only warned against
+(`finalizeExpenseReport` returns `{warning}` on the first call, same confirm-resubmit pattern as
+`createPeriod`'s overlap warning) — payroll's own finalize gate is unaffected.
+
+Blank rows (no description, no date, ₱0) are never persisted — `src/lib/expenses/totals.ts`'s
+`isBlankItem`/`padToMinRows` are the pure, unit-tested source of truth for this: `saveExpenseReport`
+filters them out before calling the `save_expense_items` RPC (delete-and-reinsert for the whole
+report, in one transaction), and the editor (`expense-report-form.tsx`) re-pads every category back
+up to `MIN_ROWS` (10) visible rows from whatever was actually saved. A new report's rows are seeded
+by `carryForwardDescriptions`: the nearest **earlier** report's (by `period_start`, not creation
+order) non-blank descriptions per category, dates/amounts always starting blank — or the category's
+own `default_descriptions` when there's no earlier report to draw from (a brand-new category, or the
+very first expense report). `expenseTotals()` (also in `totals.ts`) is the shared pure function
+behind both the live client-side preview (`expense-report-form.tsx`, watching the whole form the
+same way `compute-form.tsx` watches its payroll inputs) and the PDF.
+
 ### Advances & loans
 `src/lib/actions/obligations.ts`: loans (SSS/Pag-IBIG) are upserted per employee+type
 (`saveLoan`); advances are freeform records (label, `total_advance`, `current_balance`, up to
@@ -196,7 +245,8 @@ schema.sql is kept as a convenience for seeding a brand-new database. When chang
 new timestamped file under `supabase/migrations/` (see the existing ones for the pattern) rather
 than only editing `schema.sql`.
 
-RLS on every domain table (including `departments`) is a single blanket policy — any authenticated
+RLS on every domain table (including `departments` and the expense-report tables) is a single
+blanket policy — any authenticated
 user (admin or staff) can read/write (`*_authenticated_all`, `using (public.is_authenticated())`).
 There is no per-row ownership model. Integrity is instead enforced by a mix of:
 - DB `CHECK` constraints (non-negative money/day columns, `overtime_days` ≤ `days_worked` —
@@ -224,6 +274,13 @@ runtime by the route handler at `src/app/(app)/payroll/[id]/pdf/route.ts`. For l
 outside the app, `scripts/render-pdf.mts` renders directly to a file. Both entry points fetch the
 same extra data and must stay in sync if `PayslipRow` changes.
 
+`src/lib/pdf/format.ts` holds `peso()`/`dateRange()` — shared by both PDF documents (Helvetica has
+no `₱` glyph, so PDFs print "PHP"; Helvetica also renders the en-dash as a blank, so PDFs use a
+plain hyphen instead of `formatPeriod`'s "–"). `src/lib/pdf/expense-report-document.tsx` is the
+expense-report analogue of `payslip-document.tsx`: one page with the Total Expenses summary
+followed by one table per expense type, rendered by `src/app/(app)/expenses/[id]/pdf/route.ts` (same
+shape as the payroll PDF route) and, for local inspection, `scripts/render-expense-pdf.mts`.
+
 Each employee's SSS loan / Pag-IBIG loan / Advances deduction lines also show a "Remaining balance"
 — `PayslipRow`'s `sssLoanBalance`/`pagibigLoanBalance`/`advancesBalance`, computed by both entry
 points from `loans`/`advances` current state. This is deliberately the **live** balance, not a
@@ -234,8 +291,9 @@ was at finalize time. The summary page groups rows by department with a subtotal
 
 ### Types
 `src/lib/types.ts` hand-mirrors the `payroll_entries`/`employees`/`advances`/`loans`/
-`payroll_periods`/`departments` row shapes from `supabase/schema.sql` — there's no generated-types
-step. Keep this file in sync manually when the schema changes.
+`payroll_periods`/`departments`/`expense_categories`/`expense_periods`/`expense_items` row shapes
+from `supabase/schema.sql` — there's no generated-types step. Keep this file in sync manually when
+the schema changes.
 
 ### UI
 shadcn/ui components (`components.json`: `base-nova` style, `base-ui/react` primitives, neutral

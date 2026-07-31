@@ -111,6 +111,45 @@ export type PayrollEntry = {
   updated_at: string;
 };
 
+export type ExpenseCategory = {
+  id: string;
+  name: string;
+  sort_order: number;
+  default_descriptions: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExpenseStatus = "draft" | "finalized";
+
+export type ExpensePeriod = {
+  id: string;
+  payroll_period_id: string;
+  period_start: string;
+  period_end: string;
+  status: ExpenseStatus;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  finalized_at: string | null;
+  version: number;
+  amended_at: string | null;
+};
+
+export type ExpenseItem = {
+  id: string;
+  expense_period_id: string;
+  category_id: string;
+  item_date: string | null; // yyyy-mm-dd
+  description: string | null;
+  amount: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Convenience: full name in "Last, First Middle" order used across reports. */
 export function fullName(e: Pick<Employee, "first_name" | "last_name" | "middle_name">): string {
   const middle = e.middle_name ? ` ${e.middle_name}` : "";

@@ -12,6 +12,7 @@ const dump = JSON.parse(readFileSync(path, "utf8"));
 
 // Parents before children (FK order).
 const tables = [
+  "departments",
   "employees",
   "advances",
   "loans",
@@ -19,6 +20,9 @@ const tables = [
   "payroll_entries",
   "payroll_advance_payments",
   "payroll_loan_payments",
+  "expense_categories",
+  "expense_periods",
+  "expense_items",
 ];
 
 console.log(`Restoring into ${url}`);

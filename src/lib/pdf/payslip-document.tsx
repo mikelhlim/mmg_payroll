@@ -1,21 +1,8 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
 import { fullName } from "@/lib/types";
-import { formatPeriod } from "@/lib/payroll/period";
 import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
-
-// Helvetica (the PDF base font) has no ₱ glyph, so payslips print "PHP".
-function peso(n: number): string {
-  return "PHP " + (n ?? 0).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-// Helvetica renders the en-dash as a blank; use a plain hyphen on payslips.
-function dateRange(period: PayrollPeriod): string {
-  return formatPeriod(period.period_start, period.period_end).replace(/–/g, "-");
-}
+import { peso, dateRange } from "@/lib/pdf/format";
 
 // Balances are live ("as of now"), not a frozen finalize-time snapshot —
 // matching how the Employee Report's balance cards work, so a reprinted

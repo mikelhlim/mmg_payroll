@@ -26,11 +26,19 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
 - **Payslip PDF** — one payslip per employee page (showing each loan/advance's remaining balance
   alongside the period's deduction) plus a company summary page grouped by department with a
   subtotal each, and the grand total.
+- **Expense reports** — one per payroll week, entered as line items grouped by an admin-managed
+  expense type (Mau Expenses, Mau GCash/Transfer, Hardware Expenses, Miscellaneous Expenses by
+  default). A Total Expenses card rolls up the linked payroll run's net-pay total alongside each
+  type's subtotal into a grand total — read live off the payroll run, even after finalize. Each
+  type always shows at least 10 editable rows (Date/Description/Amount), dynamically add/deletable;
+  a new report carries forward the previous one's non-blank descriptions per type. Same lifecycle as
+  payroll (draft → save → finalize, with amend-to-reopen) and its own PDF.
 - **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history
   (including any manual balance adjustments, kept reconciled with the live balance); a per-period
-  view of who was paid and how much, grouped by department.
-- **Admin** — user management (add/change role/delete), department management, an audit log of
-  every mutation (`/admin/logs`), and "Delete all data except admin".
+  view of who was paid and how much, grouped by department; a Payroll/Expenses tab for browsing
+  either kind of period.
+- **Admin** — user management (add/change role/delete), department management, expense-type
+  management, an audit log of every mutation (`/admin/logs`), and "Delete all data except admin".
 
 Payroll math is a pure, unit-tested module (`src/lib/payroll/calculator.ts`); all money is
 computed in integer centavos to avoid floating-point drift.

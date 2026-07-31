@@ -107,6 +107,16 @@ export async function deletePeriod(id: string): Promise<{ error: string } | { ok
     return { error: "Finalized payroll periods can't be deleted." };
   }
 
+  const { count: expenseReportCount } = await supabase
+    .from("expense_periods")
+    .select("*", { count: "exact", head: true })
+    .eq("payroll_period_id", id);
+  if ((expenseReportCount ?? 0) > 0) {
+    return {
+      error: "This payroll run has an expense report attached. Delete the expense report first.",
+    };
+  }
+
   const { error } = await supabase.from("payroll_periods").delete().eq("id", id);
   if (error) return { error: error.message };
 

@@ -12,6 +12,7 @@ const c = createClient(url, key, { auth: { persistSession: false } });
 
 // Order matters for restore (parents before children).
 const tables = [
+  "departments",
   "employees",
   "advances",
   "loans",
@@ -19,6 +20,9 @@ const tables = [
   "payroll_entries",
   "payroll_advance_payments",
   "payroll_loan_payments",
+  "expense_categories",
+  "expense_periods",
+  "expense_items",
 ];
 
 const dump = { _source: url, _at: new Date().toISOString() };

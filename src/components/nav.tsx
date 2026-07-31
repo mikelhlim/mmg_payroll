@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Users,
   Wallet,
+  Receipt,
   FileText,
   Shield,
   LogOut,
@@ -31,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/payroll", label: "Payroll", icon: Wallet },
+  { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/admin", label: "Admin", icon: Shield, adminOnly: true },
 ];

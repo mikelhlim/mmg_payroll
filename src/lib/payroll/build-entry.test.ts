@@ -11,6 +11,8 @@ const employee: Employee = {
   nickname: null,
   birthdate: null,
   employment_date: null,
+  department_id: null,
+  notes: null,
   sss_number: null,
   philhealth_number: null,
   pagibig_number: null,

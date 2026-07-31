@@ -361,6 +361,14 @@ begin
   -- Supabase's pg_safeupdate extension rejects DELETE/UPDATE with no WHERE
   -- clause by default; `where true` satisfies the syntactic check while
   -- keeping delete-everything semantics.
+  --
+  -- expense_items/expense_periods must be deleted before payroll_periods:
+  -- expense_periods.payroll_period_id is `on delete restrict` (see the
+  -- expense reports migration), so deleting payroll_periods first would make
+  -- the whole wipe fail. expense_categories is lookup data, kept — same
+  -- treatment as departments.
+  delete from expense_items where true;
+  delete from expense_periods where true;
   delete from payroll_loan_payments where true;
   delete from payroll_advance_payments where true;
   delete from payroll_entries where true;
@@ -391,6 +399,16 @@ grant execute on function public.admin_wipe_all_data() to authenticated;
 -- chk_sleep_days_le_days_worked constraint (added in 20260722060000; sleep
 -- days are independent of days worked and may exceed it, unlike overtime
 -- days which remains capped).
+--
+-- Expense reports (see migration 20260801000000): expense_categories (an
+-- admin-managed lookup table, mirrors departments, seeded with the four
+-- known expense types), expense_periods (one per payroll run, `on delete
+-- restrict` on payroll_period_id — see the note on admin_wipe_all_data()
+-- above), and expense_items, plus the save_expense_items() RPC. The
+-- admin_wipe_all_data() body above already reflects this migration.
+-- Migration 20260801010000 fixes expense_periods, which shipped with a
+-- before-update trigger (set_updated_at) but no updated_at column — every
+-- UPDATE on the table failed until the column was added.
 --
 -- The canonical, up-to-date definitions live in the migration files; this
 -- schema.sql seeds a fresh database when combined with the migrations folder.

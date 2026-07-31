@@ -19,6 +19,8 @@ export type LogEntity =
   | "payroll_period"
   | "payroll_entry"
   | "department"
+  | "expense_period"
+  | "expense_category"
   | "user"
   | "data";
 
