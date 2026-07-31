@@ -19,6 +19,11 @@ export function LocalTime({
 }) {
   const [text, setText] = useState<string>(iso ?? "—");
 
+  // Deliberately setState-in-effect throughout: the formatted text depends
+  // on the viewer's local timezone/locale, which isn't known during SSR, so
+  // it can't be computed during render — this effect is what swaps the raw
+  // ISO string (see initial useState above) for the local rendering.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!iso) {
       setText("—");

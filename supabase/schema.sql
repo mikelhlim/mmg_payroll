@@ -351,13 +351,16 @@ begin
   if not public.is_admin() then
     raise exception 'Only admins can delete all data';
   end if;
-  delete from payroll_loan_payments;
-  delete from payroll_advance_payments;
-  delete from payroll_entries;
-  delete from payroll_periods;
-  delete from advances;
-  delete from loans;
-  delete from employees;
+  -- Supabase's pg_safeupdate extension rejects DELETE/UPDATE with no WHERE
+  -- clause by default; `where true` satisfies the syntactic check while
+  -- keeping delete-everything semantics.
+  delete from payroll_loan_payments where true;
+  delete from payroll_advance_payments where true;
+  delete from payroll_entries where true;
+  delete from payroll_periods where true;
+  delete from advances where true;
+  delete from loans where true;
+  delete from employees where true;
 end;
 $$;
 
@@ -374,6 +377,13 @@ grant execute on function public.admin_wipe_all_data() to authenticated;
 -- .shortfall_covered (set when a negative net pay is resolved by issuing a
 -- new advance instead); finalize_payroll_period()'s net-pay guard there
 -- allows net = 0 specifically when shortfall_covered > 0.
+--
+-- Departments & employee notes (see migration 20260731100000): departments
+-- table (+ RLS + seeded Buliran/Foliage/Anilao-Tagbakin rows),
+-- employees.department_id / employees.notes columns, and the removed
+-- chk_sleep_days_le_days_worked constraint (added in 20260722060000; sleep
+-- days are independent of days worked and may exceed it, unlike overtime
+-- days which remains capped).
 --
 -- The canonical, up-to-date definitions live in the migration files; this
 -- schema.sql seeds a fresh database when combined with the migrations folder.

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { PayslipDocument, type PayslipRow } from "@/lib/pdf/payslip-document";
-import type { Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
+import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -23,11 +23,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!period) return new Response("Payroll period not found", { status: 404 });
 
   // Embed the employee for each entry (payroll_entries.employee_id → employees).
-  const { data: entries, error } = await supabase
-    .from("payroll_entries")
-    .select("*, employees(*)")
-    .eq("period_id", id);
+  const [{ data: entries, error }, { data: departmentRows }] = await Promise.all([
+    supabase.from("payroll_entries").select("*, employees(*)").eq("period_id", id),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
   if (error) return new Response(error.message, { status: 500 });
+  const departments = (departmentRows ?? []) as Department[];
 
   const rows: PayslipRow[] = (entries ?? [])
     .filter((e) => e.employees)
@@ -45,6 +50,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const element = createElement(PayslipDocument, {
     period: period as PayrollPeriod,
     rows,
+    departments,
   }) as unknown as Parameters<typeof renderToBuffer>[0];
   const buffer = await renderToBuffer(element);
 

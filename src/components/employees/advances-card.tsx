@@ -6,7 +6,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createAdvance, updateAdvance, deleteAdvance } from "@/lib/actions/obligations";
-import { advanceSchema, advanceDefaults, MAX_ADVANCES, type AdvanceInput } from "@/lib/validation/obligations";
+import {
+  advanceSchema,
+  advanceDefaults,
+  todayISO,
+  MAX_ADVANCES,
+  type AdvanceInput,
+} from "@/lib/validation/obligations";
 import type { Advance } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -35,6 +41,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { HandCoins, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+
+// The first keystroke in a 0-valued number field should replace it outright
+// rather than requiring the user to clear it first.
+const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+const preventMouseUpDeselect = (e: React.MouseEvent<HTMLInputElement>) => e.preventDefault();
 
 export function AdvanceDialog({
   employeeId,
@@ -65,7 +76,7 @@ export function AdvanceDialog({
           total_advance: advance.total_advance,
           current_balance: advance.current_balance,
         }
-      : advanceDefaults,
+      : { ...advanceDefaults, start_date: todayISO() },
   });
 
   // A freshly-added advance's outstanding balance is its total — keep them in
@@ -90,7 +101,7 @@ export function AdvanceDialog({
       }
       toast.success(isEdit ? "Advance updated." : "Advance added.");
       setOpen(false);
-      if (!isEdit) reset(advanceDefaults);
+      if (!isEdit) reset({ ...advanceDefaults, start_date: todayISO() });
       router.refresh();
     });
   }
@@ -123,12 +134,13 @@ export function AdvanceDialog({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="adv-total">Total advance</Label>
-                <MoneyInput id="adv-total" {...totalAdvanceRegistration} />
+                <MoneyInput id="adv-total" onFocus={selectOnFocus} onMouseUp={preventMouseUpDeselect} {...totalAdvanceRegistration} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="adv-balance">Current balance</Label>
                 <MoneyInput
                   id="adv-balance"
+                  onFocus={selectOnFocus} onMouseUp={preventMouseUpDeselect}
                   {...register("current_balance", { valueAsNumber: true })}
                 />
                 {!isEdit && !dirtyFields.current_balance && (

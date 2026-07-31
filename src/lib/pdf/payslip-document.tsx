@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import type { Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
+import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
 import { fullName } from "@/lib/types";
 import { formatPeriod } from "@/lib/payroll/period";
 
@@ -195,9 +195,23 @@ function Payslip({ entry, employee, period }: PayslipRow & { period: PayrollPeri
   );
 }
 
-export function PayslipDocument({ period, rows }: { period: PayrollPeriod; rows: PayslipRow[] }) {
-  const sorted = [...rows].sort((a, b) =>
-    fullName(a.employee).localeCompare(fullName(b.employee))
+export function PayslipDocument({
+  period,
+  rows,
+  departments,
+}: {
+  period: PayrollPeriod;
+  rows: PayslipRow[];
+  departments: Department[];
+}) {
+  // Same processing order as the roster/stepper: department, then name.
+  const deptOrderById = new Map(departments.map((d) => [d.id, d.sort_order]));
+  const deptRank = (r: PayslipRow) =>
+    r.employee.department_id
+      ? (deptOrderById.get(r.employee.department_id) ?? Number.MAX_SAFE_INTEGER)
+      : Number.MAX_SAFE_INTEGER;
+  const sorted = [...rows].sort(
+    (a, b) => deptRank(a) - deptRank(b) || fullName(a.employee).localeCompare(fullName(b.employee))
   );
   const grandTotal = sorted.reduce((s, r) => s + r.entry.net_weekly_pay, 0);
 

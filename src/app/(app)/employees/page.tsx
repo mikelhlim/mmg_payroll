@@ -3,16 +3,24 @@ import { createClient } from "@/lib/supabase/server";
 import { EmployeeList } from "@/components/employees/employee-list";
 import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import type { Employee } from "@/lib/types";
+import type { Department, Employee } from "@/lib/types";
 
 export default async function EmployeesPage() {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("employees")
-    .select("*")
-    .order("is_active", { ascending: false })
-    .order("last_name", { ascending: true });
+  const [{ data }, { data: departmentRows }] = await Promise.all([
+    supabase
+      .from("employees")
+      .select("*")
+      .order("is_active", { ascending: false })
+      .order("last_name", { ascending: true }),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
   const employees = (data ?? []) as Employee[];
+  const departments = (departmentRows ?? []) as Department[];
 
   return (
     <div className="space-y-6">
@@ -27,7 +35,7 @@ export default async function EmployeesPage() {
           <Plus className="h-4 w-4" /> Add employee
         </Link>
       </div>
-      <EmployeeList employees={employees} />
+      <EmployeeList employees={employees} departments={departments} />
     </div>
   );
 }

@@ -18,9 +18,9 @@ describe("payrollEntrySchema", () => {
     ).toBe(true);
   });
 
-  it("rejects sleep_days greater than days_worked", () => {
-    const r = payrollEntrySchema.safeParse({ ...base, sleep_days: 6 });
-    expect(r.success).toBe(false);
+  it("accepts sleep_days greater than days_worked (independent field)", () => {
+    const r = payrollEntrySchema.safeParse({ ...base, days_worked: 5, sleep_days: 8 });
+    expect(r.success).toBe(true);
   });
 
   it("rejects overtime_days greater than days_worked", () => {

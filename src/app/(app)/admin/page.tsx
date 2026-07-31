@@ -5,7 +5,7 @@ import Link from "next/link";
 import { UserManagement, type AdminUser } from "@/components/admin/user-management";
 import { WipeData } from "@/components/admin/wipe-data";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChevronRight, ScrollText } from "lucide-react";
+import { Building2, ChevronRight, ScrollText } from "lucide-react";
 
 export default async function AdminPage() {
   const supabase = await createClient();
@@ -47,6 +47,23 @@ export default async function AdminPage() {
               <p className="font-semibold">Transaction log</p>
               <p className="text-sm text-muted-foreground">
                 Audit trail of every change, with local timestamps.
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </Link>
+
+      <Link href="/admin/departments">
+        <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
+          <CardContent className="flex items-center gap-4 p-5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Building2 className="h-5 w-5" />
+            </span>
+            <div className="flex-1">
+              <p className="font-semibold">Departments</p>
+              <p className="text-sm text-muted-foreground">
+                Create, rename, and reorder departments.
               </p>
             </div>
             <ChevronRight className="h-5 w-5 text-muted-foreground" />

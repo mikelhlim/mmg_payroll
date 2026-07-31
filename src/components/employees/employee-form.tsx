@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { employeeSchema, employeeDefaults, type EmployeeInput } from "@/lib/validation/employee";
 import { createEmployee, updateEmployee } from "@/lib/actions/employees";
-import type { Advance, Employee, Loan } from "@/lib/types";
+import type { Advance, Department, Employee, Loan } from "@/lib/types";
 import { LoansCard } from "@/components/employees/loans-card";
 import { AdvancesCard } from "@/components/employees/advances-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -15,7 +15,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +34,11 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 
+// The first keystroke in a 0-valued number field should replace it outright
+// rather than requiring the user to clear it first.
+const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+const preventMouseUpDeselect = (e: React.MouseEvent<HTMLInputElement>) => e.preventDefault();
+
 function toFormValues(e?: Employee): EmployeeInput {
   if (!e) return employeeDefaults;
   return {
@@ -35,6 +48,7 @@ function toFormValues(e?: Employee): EmployeeInput {
     nickname: e.nickname ?? "",
     birthdate: e.birthdate ?? "",
     employment_date: e.employment_date ?? "",
+    department_id: e.department_id ?? "none",
     sss_number: e.sss_number ?? "",
     philhealth_number: e.philhealth_number ?? "",
     pagibig_number: e.pagibig_number ?? "",
@@ -42,6 +56,7 @@ function toFormValues(e?: Employee): EmployeeInput {
     overtime_fee: e.overtime_fee,
     food_allowance_per_day: e.food_allowance_per_day,
     sleep_allowance_per_day: e.sleep_allowance_per_day,
+    notes: e.notes ?? "",
     is_active: e.is_active,
   };
 }
@@ -73,10 +88,14 @@ function MoneyInput({
   id,
   suffix,
   registration,
+  onFocus,
+  onMouseUp,
 }: {
   id: string;
   suffix?: string;
   registration: UseFormRegisterReturn;
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
+  onMouseUp?: (e: React.MouseEvent<HTMLInputElement>) => void;
 }) {
   return (
     <div className="relative">
@@ -90,6 +109,8 @@ function MoneyInput({
         min="0"
         inputMode="decimal"
         className="pl-7"
+        onFocus={onFocus}
+        onMouseUp={onMouseUp}
         {...registration}
       />
       {suffix && (
@@ -118,10 +139,12 @@ export function EmployeeForm({
   employee,
   loans = [],
   advances = [],
+  departments,
 }: {
   employee?: Employee;
   loans?: Loan[];
   advances?: Advance[];
+  departments: Department[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -142,7 +165,9 @@ export function EmployeeForm({
   // save or discard before leaving. A ref keeps the listener reading the
   // latest dirty state without re-registering on every keystroke.
   const isDirtyRef = useRef(isDirty);
-  isDirtyRef.current = isDirty;
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [leaveSaving, setLeaveSaving] = useState(false);
   const pendingHrefRef = useRef<string | null>(null);
@@ -297,6 +322,33 @@ export function EmployeeForm({
               >
                 <Input id="employment_date" type="date" {...register("employment_date")} />
               </Field>
+              <Field
+                label="Department"
+                htmlFor="department_id"
+                error={errors.department_id?.message}
+              >
+                <Controller
+                  control={control}
+                  name="department_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="department_id" className="w-full">
+                        <SelectValue>
+                          {(v: string) => departments.find((d) => d.id === v)?.name ?? "No department"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No department</SelectItem>
+                        {departments.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Field>
 
               <div className="sm:col-span-2">
                 <p className="mb-3 mt-1 text-sm font-semibold text-muted-foreground">
@@ -322,6 +374,16 @@ export function EmployeeForm({
                   </Field>
                 </div>
               </div>
+
+              <div className="sm:col-span-2">
+                <Field label="Notes" htmlFor="notes" error={errors.notes?.message}>
+                  <Textarea
+                    id="notes"
+                    placeholder="Anything worth remembering about this employee…"
+                    {...register("notes")}
+                  />
+                </Field>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -336,7 +398,13 @@ export function EmployeeForm({
                 error={errors.daily_wage?.message}
                 hint="Base pay per day worked"
               >
-                <MoneyInput id="daily_wage" suffix="/day" registration={money("daily_wage")} />
+                <MoneyInput
+                  id="daily_wage"
+                  suffix="/day"
+                  registration={money("daily_wage")}
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                />
               </Field>
               <Field
                 label="Overtime fee"
@@ -344,7 +412,13 @@ export function EmployeeForm({
                 error={errors.overtime_fee?.message}
                 hint="Fixed fee per overtime day"
               >
-                <MoneyInput id="overtime_fee" suffix="/OT day" registration={money("overtime_fee")} />
+                <MoneyInput
+                  id="overtime_fee"
+                  suffix="/OT day"
+                  registration={money("overtime_fee")}
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                />
               </Field>
               <Field
                 label="Food allowance"
@@ -355,6 +429,8 @@ export function EmployeeForm({
                   id="food_allowance_per_day"
                   suffix="/day"
                   registration={money("food_allowance_per_day")}
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
                 />
               </Field>
               <Field
@@ -365,6 +441,8 @@ export function EmployeeForm({
                 <MoneyInput
                   id="sleep_allowance_per_day"
                   suffix="/day"
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
                   registration={money("sleep_allowance_per_day")}
                 />
               </Field>
@@ -400,7 +478,7 @@ export function EmployeeForm({
         <Button type="button" variant="outline" onClick={() => router.back()} disabled={pending}>
           Cancel
         </Button>
-        <Button type="button" onClick={handleSubmit(onSubmit)} disabled={pending}>
+        <Button type="button" onClick={(e) => handleSubmit(onSubmit)(e)} disabled={pending}>
           {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
           {isEdit ? "Save changes" : "Add employee"}
         </Button>

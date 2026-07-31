@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteEmployee } from "@/lib/actions/employees";
-import { fullName, type Employee } from "@/lib/types";
+import { groupByDepartment } from "@/lib/departments";
+import { fullName, type Department, type Employee } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -83,7 +84,89 @@ function DeleteButton({ employee }: { employee: Employee }) {
   );
 }
 
-export function EmployeeList({ employees }: { employees: Employee[] }) {
+function EmployeeRow({ employee: e }: { employee: Employee }) {
+  return (
+    <tr className="border-b last:border-0 hover:bg-muted/30">
+      <td className="px-4 py-3">
+        <Link href={`/employees/${e.id}`} className="flex items-center gap-3 font-medium">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {initials(e)}
+          </span>
+          {fullName(e)}
+        </Link>
+      </td>
+      <td className="px-4 py-3 text-muted-foreground">{e.nickname ?? "—"}</td>
+      <td className="px-4 py-3 tabular-nums">{formatPHP(e.daily_wage)}</td>
+      <td className="px-4 py-3">
+        <Badge variant={e.is_active ? "default" : "secondary"}>
+          {e.is_active ? "Active" : "Inactive"}
+        </Badge>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-1">
+          <Link
+            href={`/employees/${e.id}`}
+            className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}
+            aria-label={`Edit ${fullName(e)}`}
+          >
+            <Pencil className="h-4 w-4" />
+          </Link>
+          <DeleteButton employee={e} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function EmployeeCard({ employee: e }: { employee: Employee }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 p-4">
+        <Link href={`/employees/${e.id}`} className="flex flex-1 items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+            {initials(e)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate font-medium">{fullName(e)}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatPHP(e.daily_wage)}/day
+              {e.nickname ? ` · ${e.nickname}` : ""}
+            </div>
+          </div>
+        </Link>
+        <Badge variant={e.is_active ? "default" : "secondary"}>
+          {e.is_active ? "Active" : "Inactive"}
+        </Badge>
+        <DeleteButton employee={e} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function GroupHeading({
+  name,
+  count,
+}: {
+  name: string;
+  count: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-1">
+      <h2 className="text-sm font-semibold">{name}</h2>
+      <Badge variant="secondary">
+        {count} {count === 1 ? "employee" : "employees"}
+      </Badge>
+    </div>
+  );
+}
+
+export function EmployeeList({
+  employees,
+  departments,
+}: {
+  employees: Employee[];
+  departments: Department[];
+}) {
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -95,6 +178,11 @@ export function EmployeeList({ employees }: { employees: Employee[] }) {
         .some((v) => v!.toLowerCase().includes(q))
     );
   }, [employees, query]);
+
+  const groups = useMemo(
+    () => groupByDepartment(filtered, departments, { hideEmpty: query.trim().length > 0 }),
+    [filtered, departments, query]
+  );
 
   if (employees.length === 0) {
     return (
@@ -127,79 +215,41 @@ export function EmployeeList({ employees }: { employees: Employee[] }) {
         />
       </div>
 
-      {/* Desktop table */}
-      <Card className="hidden overflow-hidden md:block">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 font-medium">Employee</th>
-              <th className="px-4 py-3 font-medium">Nickname</th>
-              <th className="px-4 py-3 font-medium">Daily wage</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 text-right font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((e) => (
-              <tr key={e.id} className="border-b last:border-0 hover:bg-muted/30">
-                <td className="px-4 py-3">
-                  <Link href={`/employees/${e.id}`} className="flex items-center gap-3 font-medium">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                      {initials(e)}
-                    </span>
-                    {fullName(e)}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{e.nickname ?? "—"}</td>
-                <td className="px-4 py-3 tabular-nums">{formatPHP(e.daily_wage)}</td>
-                <td className="px-4 py-3">
-                  <Badge variant={e.is_active ? "default" : "secondary"}>
-                    {e.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-1">
-                    <Link
-                      href={`/employees/${e.id}`}
-                      className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}
-                      aria-label={`Edit ${fullName(e)}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Link>
-                    <DeleteButton employee={e} />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
+      {groups.map((group) => (
+        <div key={group.department?.id ?? "none"} className="space-y-2">
+          <GroupHeading
+            name={group.department?.name ?? "No department"}
+            count={group.employees.length}
+          />
 
-      {/* Mobile cards */}
-      <div className="grid gap-3 md:hidden">
-        {filtered.map((e) => (
-          <Card key={e.id}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <Link href={`/employees/${e.id}`} className="flex flex-1 items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                  {initials(e)}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{fullName(e)}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatPHP(e.daily_wage)}/day
-                    {e.nickname ? ` · ${e.nickname}` : ""}
-                  </div>
-                </div>
-              </Link>
-              <Badge variant={e.is_active ? "default" : "secondary"}>
-                {e.is_active ? "Active" : "Inactive"}
-              </Badge>
-              <DeleteButton employee={e} />
-            </CardContent>
+          {/* Desktop table */}
+          <Card className="hidden overflow-hidden md:block">
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Employee</th>
+                  <th className="px-4 py-3 font-medium">Nickname</th>
+                  <th className="px-4 py-3 font-medium">Daily wage</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.employees.map((e) => (
+                  <EmployeeRow key={e.id} employee={e} />
+                ))}
+              </tbody>
+            </table>
           </Card>
-        ))}
-      </div>
+
+          {/* Mobile cards */}
+          <div className="grid gap-3 md:hidden">
+            {group.employees.map((e) => (
+              <EmployeeCard key={e.id} employee={e} />
+            ))}
+          </div>
+        </div>
+      ))}
 
       {filtered.length === 0 && (
         <p className="py-8 text-center text-sm text-muted-foreground">

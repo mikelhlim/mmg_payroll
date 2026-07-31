@@ -19,6 +19,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,6 +53,7 @@ type FormValues = {
   sss_loan_payment: number;
   pagibig_loan_payment: number;
   advances: Record<string, number>;
+  notes: string;
 };
 
 function defaults(employee: Employee, advances: Advance[], entry: PayrollEntry | null): FormValues {
@@ -64,8 +66,17 @@ function defaults(employee: Employee, advances: Advance[], entry: PayrollEntry |
     sss_loan_payment: entry?.sss_loan_payment ?? 0,
     pagibig_loan_payment: entry?.pagibig_loan_payment ?? 0,
     advances: Object.fromEntries(advances.map((a) => [a.id, allocById.get(a.id) ?? 0])),
+    notes: employee.notes ?? "",
   };
 }
+
+// The first keystroke in a 0-valued number field should replace it outright
+// rather than requiring the user to clear it first. onMouseUp must also be
+// suppressed — otherwise the native mouseup-after-click collapses the
+// selection onFocus just made, right back to a caret (typing "5" would
+// insert instead of replace, producing "05").
+const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+const preventMouseUpDeselect = (e: React.MouseEvent<HTMLInputElement>) => e.preventDefault();
 
 function Line({
   label,
@@ -120,7 +131,13 @@ export function ComputeForm({
   const [coveringShortfall, setCoveringShortfall] = useState(false);
   const ro = periodFinalized; // read-only
 
-  const { register, handleSubmit, watch, setValue } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { dirtyFields },
+  } = useForm<FormValues>({
     defaultValues: defaults(employee, advances, entry),
   });
 
@@ -164,7 +181,9 @@ export function ComputeForm({
   const autosaveRef = useRef<() => void>(() => {});
   autosaveRef.current = () => {
     if (!ro && JSON.stringify(values) !== savedSigRef.current) {
-      void savePayrollEntry(periodId, employee.id, toInput(values)).then(() => router.refresh());
+      void savePayrollEntry(periodId, employee.id, toInput(values), values.notes).then(() =>
+        router.refresh()
+      );
     }
   };
   useEffect(() => () => autosaveRef.current(), []);
@@ -186,7 +205,7 @@ export function ComputeForm({
 
   function onSubmit(v: FormValues) {
     startTransition(async () => {
-      const res = await savePayrollEntry(periodId, employee.id, toInput(v));
+      const res = await savePayrollEntry(periodId, employee.id, toInput(v), v.notes);
       if ("error" in res) {
         toast.error(res.error);
         return;
@@ -231,8 +250,10 @@ export function ComputeForm({
   const num = (name: keyof FormValues) => register(name, { valueAsNumber: true, disabled: ro });
 
   // Days worked auto-fills leave = period days − worked, and defaults sleep
-  // days to match days worked (both stay independently editable afterward).
-  // Neither sleep days nor overtime days may ever exceed days worked.
+  // days to match days worked as a convenience — but only until the user has
+  // edited sleep days directly, at which point it's independent from then on
+  // (sleep can legitimately differ from, or exceed, days worked). Overtime
+  // days may never exceed days worked.
   const daysWorkedReg = register("days_worked", {
     valueAsNumber: true,
     disabled: ro,
@@ -240,19 +261,12 @@ export function ComputeForm({
       if (ro) return;
       const w = Number(e.target.value) || 0;
       setValue("days_on_leave", Math.max(0, expectedDays - w), { shouldDirty: true });
-      setValue("sleep_days", w, { shouldDirty: true });
+      if (!dirtyFields.sleep_days) {
+        setValue("sleep_days", w, { shouldDirty: true });
+      }
       if ((Number(values.overtime_days) || 0) > w) {
         setValue("overtime_days", w, { shouldDirty: true });
       }
-    },
-  });
-  const sleepDaysReg = register("sleep_days", {
-    valueAsNumber: true,
-    disabled: ro,
-    onChange: (e) => {
-      if (ro) return;
-      const w = Number(values.days_worked) || 0;
-      if ((Number(e.target.value) || 0) > w) setValue("sleep_days", w, { shouldDirty: true });
     },
   });
   const overtimeDaysReg = register("overtime_days", {
@@ -331,26 +345,59 @@ export function ComputeForm({
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <div className="space-y-1.5">
                 <Label htmlFor="days_worked">Days worked</Label>
-                <Input id="days_worked" type="number" step="0.5" min="0" {...daysWorkedReg} />
+                <Input
+                  id="days_worked"
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                  {...daysWorkedReg}
+                />
                 <p className="text-xs text-muted-foreground">
                   {formatPHP(employee.daily_wage)} / day
                 </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="days_on_leave">Days on leave</Label>
-                <Input id="days_on_leave" type="number" step="0.5" min="0" {...num("days_on_leave")} />
+                <Input
+                  id="days_on_leave"
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                  {...num("days_on_leave")}
+                />
                 <p className="text-xs text-muted-foreground">auto-filled from days worked</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="sleep_days">Sleep days</Label>
-                <Input id="sleep_days" type="number" step="0.5" min="0" max={dw} {...sleepDaysReg} />
+                <Input
+                  id="sleep_days"
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                  {...num("sleep_days")}
+                />
                 <p className="text-xs text-muted-foreground">
                   × {formatPHP(employee.sleep_allowance_per_day)}/day
                 </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="overtime_days">Overtime days</Label>
-                <Input id="overtime_days" type="number" step="0.5" min="0" max={dw} {...overtimeDaysReg} />
+                <Input
+                  id="overtime_days"
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max={dw}
+                  onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
+                  {...overtimeDaysReg}
+                />
                 <p className="text-xs text-muted-foreground">
                   × {formatPHP(employee.overtime_fee)}/day
                 </p>
@@ -367,6 +414,23 @@ export function ComputeForm({
                 ? `Days worked + leave = ${daysEntered} of ${expectedDays} — accounts for the whole period.`
                 : `Days worked + leave = ${daysEntered}, but this pay period is ${expectedDays} days. Adjust to finalize (a draft can still be saved).`}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              aria-label="Notes about this employee"
+              placeholder="Anything worth remembering…"
+              disabled={ro}
+              {...register("notes")}
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Saved with this entry&apos;s Save button. Also visible on the employee&apos;s profile.
+            </p>
           </CardContent>
         </Card>
 
@@ -424,6 +488,8 @@ export function ComputeForm({
                             <MoneyInput
                               aria-label={`${LOAN_LABELS[type]} repayment`}
                               disabled={ro}
+                              onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
                               {...loanPaymentReg(type, loan)}
                             />
                           </div>
@@ -483,6 +549,8 @@ export function ComputeForm({
                         <MoneyInput
                           aria-label={`Deduct from ${a.label ?? "advance"}`}
                           disabled={ro}
+                          onFocus={selectOnFocus}
+                  onMouseUp={preventMouseUpDeselect}
                           {...advancePaymentReg(a)}
                         />
                       </div>

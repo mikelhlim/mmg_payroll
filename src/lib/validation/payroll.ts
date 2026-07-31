@@ -31,14 +31,12 @@ export const payrollEntrySchema = z
     days_worked: days,
     days_on_leave: days,
     overtime_days: days,
+    // Sleep days are independent of days worked and may exceed it — no cap
+    // here (unlike overtime_days below).
     sleep_days: days,
     sss_loan_payment: money,
     pagibig_loan_payment: money,
     advance_allocations: z.array(advanceAllocationSchema),
-  })
-  .refine((v) => v.sleep_days <= v.days_worked, {
-    message: "Sleep days can't exceed days worked",
-    path: ["sleep_days"],
   })
   .refine((v) => v.overtime_days <= v.days_worked, {
     message: "Overtime days can't exceed days worked",

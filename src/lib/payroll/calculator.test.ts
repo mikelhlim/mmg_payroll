@@ -50,6 +50,18 @@ describe("computePayroll — earnings", () => {
     expect(r.baseWageCentavos).toBe(toCentavos(3660)); // unaffected: 6 × 610
   });
 
+  it("sleep days may exceed days worked — no cap, unlike overtime days", () => {
+    const r = computePayroll(rates, {
+      daysWorked: 5,
+      daysOnLeave: 0,
+      overtimeDays: 0,
+      sleepDays: 8, // slept more nights than days worked this period
+      ...noDeductions,
+    });
+    expect(r.totalSleepAllowanceCentavos).toBe(toCentavos(400)); // 8 × 50
+    expect(r.baseWageCentavos).toBe(toCentavos(3050)); // unaffected: 5 × 610
+  });
+
   it("adds overtime as overtime_days × fixed daily overtime fee", () => {
     const r = computePayroll(rates, {
       daysWorked: 6,

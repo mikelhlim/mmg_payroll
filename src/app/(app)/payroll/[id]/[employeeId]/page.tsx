@@ -6,11 +6,13 @@ import { formatPeriod } from "@/lib/payroll/period";
 import {
   fullName,
   type Advance,
+  type Department,
   type Employee,
   type Loan,
   type PayrollEntry,
   type PayrollPeriod,
 } from "@/lib/types";
+import { sortEmployeesByDepartment } from "@/lib/departments";
 import { ArrowLeft } from "lucide-react";
 
 export default async function ComputeEmployeePage({
@@ -29,29 +31,40 @@ export default async function ComputeEmployeePage({
   if (!periodRow) notFound();
   const period = periodRow as PayrollPeriod;
 
-  const [{ data: employeeRow }, { data: loanRows }, { data: advanceRows }, { data: entryRow }, { data: activeRows }] =
-    await Promise.all([
-      supabase.from("employees").select("*").eq("id", employeeId).maybeSingle(),
-      supabase.from("loans").select("*").eq("employee_id", employeeId),
-      supabase.from("advances").select("*").eq("employee_id", employeeId).eq("is_active", true),
-      supabase
-        .from("payroll_entries")
-        .select("*")
-        .eq("period_id", id)
-        .eq("employee_id", employeeId)
-        .maybeSingle(),
-      supabase
-        .from("employees")
-        .select("id")
-        .eq("is_active", true)
-        .order("last_name", { ascending: true }),
-    ]);
+  const [
+    { data: employeeRow },
+    { data: loanRows },
+    { data: advanceRows },
+    { data: entryRow },
+    { data: activeRows },
+    { data: departmentRows },
+  ] = await Promise.all([
+    supabase.from("employees").select("*").eq("id", employeeId).maybeSingle(),
+    supabase.from("loans").select("*").eq("employee_id", employeeId),
+    supabase.from("advances").select("*").eq("employee_id", employeeId).eq("is_active", true),
+    supabase
+      .from("payroll_entries")
+      .select("*")
+      .eq("period_id", id)
+      .eq("employee_id", employeeId)
+      .maybeSingle(),
+    supabase.from("employees").select("id, department_id, last_name").eq("is_active", true),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
 
   if (!employeeRow) notFound();
   const employee = employeeRow as Employee;
 
-  // Stepper across the active roster.
-  const order = (activeRows ?? []).map((r) => r.id as string);
+  // Stepper across the active roster, in department processing order.
+  const departments = (departmentRows ?? []) as Department[];
+  const order = sortEmployeesByDepartment(
+    (activeRows ?? []) as Pick<Employee, "id" | "department_id" | "last_name">[],
+    departments
+  ).map((r) => r.id);
   const index = Math.max(0, order.indexOf(employeeId));
   const prevId = index > 0 ? order[index - 1] : null;
   const nextId = index < order.length - 1 ? order[index + 1] : null;

@@ -16,8 +16,9 @@
  *   Leave is unpaid (only days worked are paid); leave days are tracked
  *   for reporting but never enter the pay math. Statutory government
  *   contributions are not modeled — the client no longer collects them.
- *   sleep_days and overtime_days can never exceed days_worked (enforced by
- *   the caller — see validation/payroll.ts and the DB CHECK constraints).
+ *   overtime_days can never exceed days_worked (enforced by the caller — see
+ *   validation/payroll.ts and the DB CHECK constraints). sleep_days has no
+ *   such cap — it's independent of days_worked and may exceed it.
  *   net_weekly_pay = 0 is a normal, allowed outcome; only < 0 blocks finalize.
  */
 import { multiplyCentavos, sumCentavos } from "@/lib/money";

@@ -3,6 +3,14 @@
 
 export type AppRole = "admin" | "staff";
 
+export type Department = {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Employee = {
   id: string;
   first_name: string;
@@ -11,6 +19,8 @@ export type Employee = {
   nickname: string | null;
   birthdate: string | null; // yyyy-mm-dd
   employment_date: string | null; // yyyy-mm-dd
+  department_id: string | null;
+  notes: string | null;
   sss_number: string | null;
   philhealth_number: string | null;
   pagibig_number: string | null;

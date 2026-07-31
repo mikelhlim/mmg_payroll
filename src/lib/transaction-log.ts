@@ -18,6 +18,7 @@ export type LogEntity =
   | "loan"
   | "payroll_period"
   | "payroll_entry"
+  | "department"
   | "user"
   | "data";
 

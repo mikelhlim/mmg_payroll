@@ -6,6 +6,7 @@ import { z } from "zod";
 // empty optional strings are converted to null in the server action.
 
 const text = z.string().trim().max(120);
+const longText = z.string().trim().max(2000, "Keep notes under 2000 characters");
 const money = z
   .number({ message: "Enter a valid amount" })
   .min(0, "Must be zero or more")
@@ -21,6 +22,10 @@ export const employeeSchema = z.object({
   nickname: text,
   birthdate: z.string(), // yyyy-mm-dd or ""
   employment_date: z.string(),
+  // "none" is the sentinel for "no department" — base-ui's Select treats an
+  // empty-string value as unset, so we can't use "" the way other optional
+  // string fields here do; translated to/from null in the server action.
+  department_id: z.string(),
   sss_number: text,
   philhealth_number: text,
   pagibig_number: text,
@@ -28,6 +33,7 @@ export const employeeSchema = z.object({
   overtime_fee: money,
   food_allowance_per_day: money,
   sleep_allowance_per_day: money,
+  notes: longText,
   is_active: z.boolean(),
 });
 
@@ -40,6 +46,7 @@ export const employeeDefaults: EmployeeInput = {
   nickname: "",
   birthdate: "",
   employment_date: "",
+  department_id: "none",
   sss_number: "",
   philhealth_number: "",
   pagibig_number: "",
@@ -47,5 +54,6 @@ export const employeeDefaults: EmployeeInput = {
   overtime_fee: 0,
   food_allowance_per_day: 0,
   sleep_allowance_per_day: 0,
+  notes: "",
   is_active: true,
 };

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeForm } from "@/components/employees/employee-form";
 import { buttonVariants } from "@/components/ui/button";
-import { fullName, type Advance, type Employee, type Loan } from "@/lib/types";
+import { fullName, type Advance, type Department, type Employee, type Loan } from "@/lib/types";
 import { ArrowLeft, FileText } from "lucide-react";
 
 export default async function EmployeeEditPage({
@@ -14,20 +14,27 @@ export default async function EmployeeEditPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: employeeRow }, { data: loanRows }, { data: advanceRows }] = await Promise.all([
-    supabase.from("employees").select("*").eq("id", id).maybeSingle(),
-    supabase.from("loans").select("*").eq("employee_id", id),
-    supabase
-      .from("advances")
-      .select("*")
-      .eq("employee_id", id)
-      .order("created_at", { ascending: true }),
-  ]);
+  const [{ data: employeeRow }, { data: loanRows }, { data: advanceRows }, { data: departmentRows }] =
+    await Promise.all([
+      supabase.from("employees").select("*").eq("id", id).maybeSingle(),
+      supabase.from("loans").select("*").eq("employee_id", id),
+      supabase
+        .from("advances")
+        .select("*")
+        .eq("employee_id", id)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("departments")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+    ]);
 
   if (!employeeRow) notFound();
   const employee = employeeRow as Employee;
   const loans = (loanRows ?? []) as Loan[];
   const advances = (advanceRows ?? []) as Advance[];
+  const departments = (departmentRows ?? []) as Department[];
 
   return (
     <div className="space-y-6">
@@ -53,7 +60,7 @@ export default async function EmployeeEditPage({
         </Link>
       </div>
 
-      <EmployeeForm employee={employee} loans={loans} advances={advances} />
+      <EmployeeForm employee={employee} loans={loans} advances={advances} departments={departments} />
     </div>
   );
 }

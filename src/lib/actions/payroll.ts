@@ -129,7 +129,8 @@ export type SaveEntryResult =
 export async function savePayrollEntry(
   periodId: string,
   employeeId: string,
-  raw: PayrollEntryInput
+  raw: PayrollEntryInput,
+  notes: string
 ): Promise<SaveEntryResult> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
@@ -160,6 +161,28 @@ export async function savePayrollEntry(
         .maybeSingle(),
     ]);
   if (!employee) return { error: "Employee not found." };
+
+  // Notes live on the employee, not the entry, but are edited inline here too
+  // — saved through this same action so there's only one Save button, not
+  // two. Only written (and logged) when it actually changed, so routine
+  // "Save & next" clicks and the autosave-on-navigate path don't spam the
+  // audit log with no-op notes updates.
+  const trimmedNotes = notes.trim();
+  const currentNotes = (employee as Employee).notes ?? "";
+  if (trimmedNotes !== currentNotes) {
+    const { error: notesError } = await supabase
+      .from("employees")
+      .update({ notes: trimmedNotes || null })
+      .eq("id", employeeId);
+    if (notesError) return { error: notesError.message };
+    await logTransaction(supabase, {
+      action: "update",
+      entity: "employee",
+      entity_id: employeeId,
+      summary: `Updated notes for ${fullName(employee as Employee)}`,
+    });
+    revalidatePath(`/employees/${employeeId}`);
+  }
 
   const { row } = buildEntryRow(
     employee as Employee,

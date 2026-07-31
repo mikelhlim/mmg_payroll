@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { saveLoan, clearLoan } from "@/lib/actions/obligations";
-import { loanSchema, type LoanInput } from "@/lib/validation/obligations";
+import { loanSchema, todayISO, type LoanInput } from "@/lib/validation/obligations";
 import type { Loan, LoanType } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -37,6 +37,11 @@ import {
 import { Landmark, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 export const LOAN_LABELS: Record<LoanType, string> = { SSS: "SSS loan", PAGIBIG: "Pag-IBIG loan" };
+
+// The first keystroke in a 0-valued number field should replace it outright
+// rather than requiring the user to clear it first.
+const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+const preventMouseUpDeselect = (e: React.MouseEvent<HTMLInputElement>) => e.preventDefault();
 
 /**
  * Add/edit a government loan. Mirrors AdvanceDialog's exact pattern (dialog +
@@ -70,7 +75,7 @@ export function LoanDialog({
       loan_type: loanType,
       principal: loan?.principal ?? 0,
       current_balance: loan?.current_balance ?? 0,
-      start_date: loan?.start_date ?? "",
+      start_date: loan?.start_date ?? todayISO(),
     },
   });
 
@@ -123,12 +128,19 @@ export function LoanDialog({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor={`${loanType}-principal`}>Principal</Label>
-                <MoneyInput id={`${loanType}-principal`} {...principalRegistration} />
+                <MoneyInput
+                  id={`${loanType}-principal`}
+                  onFocus={selectOnFocus}
+              onMouseUp={preventMouseUpDeselect}
+                  {...principalRegistration}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${loanType}-balance`}>Current balance</Label>
                 <MoneyInput
                   id={`${loanType}-balance`}
+                  onFocus={selectOnFocus}
+              onMouseUp={preventMouseUpDeselect}
                   {...register("current_balance", { valueAsNumber: true })}
                 />
                 {!isEdit && !dirtyFields.current_balance && (

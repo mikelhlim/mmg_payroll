@@ -32,7 +32,8 @@ npm run lint         # eslint
 npm test             # vitest run — all unit tests, once
 npm run test:watch   # vitest watch mode
 npx vitest run <path/to/file.test.ts>   # run a single test file
-npm run seed:admin   # create/reset the bootstrap admin user (reads .env.local)
+npm run seed:admin   # create the bootstrap admin (reads .env.local); refuses to touch an
+                      #   existing account unless run with --force (or FORCE_RESEED=1)
 ```
 
 Ad-hoc ops scripts — all read Supabase credentials from `.env.local` via `--env-file` and operate

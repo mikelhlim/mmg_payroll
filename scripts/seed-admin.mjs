@@ -6,12 +6,19 @@
 // and SEED_ADMIN_PASSWORD from .env.local (loaded via node --env-file). The
 // admin is created with role=admin and must_change_password=true, so they are
 // forced to set a new password on first login.
+//
+// Re-running this against an account that already exists refuses by default
+// (pass --force or set FORCE_RESEED=1 to overwrite it anyway) — nothing in a
+// normal deploy calls this script, but a human re-running it out of habit
+// would otherwise silently reset the live admin's password to whatever
+// SEED_ADMIN_PASSWORD happens to be sitting in .env.local.
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const email = process.env.SEED_ADMIN_EMAIL;
 const password = process.env.SEED_ADMIN_PASSWORD;
+const force = process.argv.includes("--force") || process.env.FORCE_RESEED === "1";
 
 if (!url || !serviceRoleKey) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local");
@@ -36,6 +43,16 @@ if (listError) {
   process.exit(1);
 }
 const existing = list.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+
+if (existing && !force) {
+  console.error(
+    `An account already exists for ${email}. Re-running this script would overwrite their ` +
+      `current password and force a password reset on next login — most likely not what you want ` +
+      `after initial setup. If you really intend to reset this admin's password, re-run with ` +
+      `--force (or FORCE_RESEED=1).`
+  );
+  process.exit(1);
+}
 
 if (existing) {
   const { error } = await admin.auth.admin.updateUserById(existing.id, {

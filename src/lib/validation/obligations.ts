@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { format } from "date-fns";
+
+/** Today's local date as yyyy-mm-dd — defaults a new loan/advance's start date. */
+export function todayISO(): string {
+  return format(new Date(), "yyyy-MM-dd");
+}
 
 const money = z
   .number({ message: "Enter a valid amount" })

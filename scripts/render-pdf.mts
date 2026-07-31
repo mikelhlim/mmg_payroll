@@ -23,12 +23,20 @@ const { data: entries } = await c
   .from("payroll_entries")
   .select("*, employees(*)")
   .eq("period_id", periodId);
+const { data: departments } = await c
+  .from("departments")
+  .select("*")
+  .order("sort_order", { ascending: true })
+  .order("name", { ascending: true });
 
-const rows = (entries ?? []).map((e: any) => {
+const rows = (entries ?? []).map((e) => {
   const { employees, ...entry } = e;
   return { entry, employee: employees };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-await renderToFile(createElement(PayslipDocument, { period, rows }) as any, outPath);
+await renderToFile(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createElement(PayslipDocument, { period, rows, departments: departments ?? [] }) as any,
+  outPath
+);
 console.log(`wrote ${outPath} (${rows.length} payslips + summary)`);

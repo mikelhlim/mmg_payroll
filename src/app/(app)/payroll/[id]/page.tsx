@@ -11,7 +11,8 @@ import { LocalTime } from "@/components/local-time";
 import { formatPeriod } from "@/lib/payroll/period";
 import { daysMatch, periodDays } from "@/lib/payroll/validation";
 import { formatPHP } from "@/lib/money";
-import { fullName, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
+import { fullName, type Department, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
+import { sortEmployeesByDepartment } from "@/lib/departments";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, Circle, Download } from "lucide-react";
 
@@ -28,25 +29,30 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
   const period = periodRow as PayrollPeriod;
   const finalized = period.status === "finalized";
 
-  const [{ data: employeeRows }, { data: entryRows }] = await Promise.all([
-    supabase
-      .from("employees")
-      .select("*")
-      .eq("is_active", true)
-      .order("last_name", { ascending: true }),
+  const [{ data: employeeRows }, { data: entryRows }, { data: departmentRows }] = await Promise.all([
+    supabase.from("employees").select("*").eq("is_active", true),
     supabase.from("payroll_entries").select("*").eq("period_id", id),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
   ]);
 
-  const employees = (employeeRows ?? []) as Employee[];
+  const departments = (departmentRows ?? []) as Department[];
+  const employees = sortEmployeesByDepartment((employeeRows ?? []) as Employee[], departments);
   const entries = (entryRows ?? []) as PayrollEntry[];
   const entryByEmployee = new Map(entries.map((e) => [e.employee_id, e]));
 
   // For a finalized period, show the exact set of employees that were paid.
   const rosterIds = finalized ? entries.map((e) => e.employee_id) : employees.map((e) => e.id);
   const roster = finalized
-    ? entries
-        .map((e) => employees.find((emp) => emp.id === e.employee_id))
-        .filter((e): e is Employee => Boolean(e))
+    ? sortEmployeesByDepartment(
+        entries
+          .map((e) => employees.find((emp) => emp.id === e.employee_id))
+          .filter((e): e is Employee => Boolean(e)),
+        departments
+      )
     : employees;
 
   const range = { period_start: period.period_start, period_end: period.period_end };

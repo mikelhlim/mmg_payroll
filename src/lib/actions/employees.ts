@@ -25,6 +25,7 @@ function toRow(input: EmployeeInput) {
     nickname: nullify(input.nickname),
     birthdate: nullify(input.birthdate),
     employment_date: nullify(input.employment_date),
+    department_id: input.department_id === "none" ? null : input.department_id,
     sss_number: nullify(input.sss_number),
     philhealth_number: nullify(input.philhealth_number),
     pagibig_number: nullify(input.pagibig_number),
@@ -32,6 +33,7 @@ function toRow(input: EmployeeInput) {
     overtime_fee: round2(input.overtime_fee),
     food_allowance_per_day: round2(input.food_allowance_per_day),
     sleep_allowance_per_day: round2(input.sleep_allowance_per_day),
+    notes: nullify(input.notes),
     // Statutory contributions are no longer collected — omit them so the
     // column keeps its DB default (insert) or existing value (update).
     is_active: input.is_active,
