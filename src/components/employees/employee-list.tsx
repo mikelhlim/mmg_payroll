@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteEmployee } from "@/lib/actions/employees";
 import { groupByDepartment } from "@/lib/departments";
+import { DepartmentGroupHeading } from "@/components/department-group-heading";
 import { fullName, type Department, type Employee } from "@/lib/types";
 import { formatPHP } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -152,23 +153,6 @@ function EmployeeCard({ employee: e, balance }: { employee: Employee; balance?: 
   );
 }
 
-function GroupHeading({
-  name,
-  count,
-}: {
-  name: string;
-  count: number;
-}) {
-  return (
-    <div className="flex items-center gap-2 px-1">
-      <h2 className="text-sm font-semibold">{name}</h2>
-      <Badge variant="secondary">
-        {count} {count === 1 ? "employee" : "employees"}
-      </Badge>
-    </div>
-  );
-}
-
 export function EmployeeList({
   employees,
   departments,
@@ -247,7 +231,7 @@ export function EmployeeList({
       ) : (
         groups.map((group) => (
           <div key={group.department?.id ?? "none"} className="space-y-2">
-            <GroupHeading
+            <DepartmentGroupHeading
               name={group.department?.name ?? "No department"}
               count={group.employees.length}
             />

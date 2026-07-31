@@ -14,16 +14,21 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
   notes field), compensation (daily wage, daily overtime fee, food/sleep allowance), an optional
   department assignment, SSS/Pag-IBIG loans, and up to 5 cash advances.
 - **Departments** — organize employees into departments with a managed processing order (Admin →
-  Departments: create/rename/reorder/delete); the employee list and payroll processing order
-  (roster, stepper, payslip PDF) all follow that order, with unassigned employees listed last.
+  Departments: create/rename/reorder/delete). Every list of employees — the employee list, the
+  payroll roster and stepper, the Reports period view, and the payslip PDF — is grouped by
+  department in that order, with unassigned employees listed last. The dashboard's "Active
+  advances"/"Open loans" tiles link straight to the affected employees, pre-filtered.
 - **Payroll** — weekly runs processed in department order; per-employee compute with a live
   breakdown (sleep days are independent of days worked and may exceed it; overtime days may not);
   a negative net pay blocks finalize (net = ₱0 is fine) and can be resolved in-flow by issuing an
   advance for the shortfall; atomic finalize (`finalize_payroll_period` RPC) that records payslips
   and decrements every loan/advance balance with payment history.
-- **Payslip PDF** — one payslip per employee page + a company summary page with the grand total,
-  in department order.
-- **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history.
+- **Payslip PDF** — one payslip per employee page (showing each loan/advance's remaining balance
+  alongside the period's deduction) plus a company summary page grouped by department with a
+  subtotal each, and the grand total.
+- **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history
+  (including any manual balance adjustments, kept reconciled with the live balance); a per-period
+  view of who was paid and how much, grouped by department.
 - **Admin** — user management (add/change role/delete), department management, an audit log of
   every mutation (`/admin/logs`), and "Delete all data except admin".
 

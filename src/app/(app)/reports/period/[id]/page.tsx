@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { fullName, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
+import { fullName, type Department, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
 import { formatPeriod } from "@/lib/payroll/period";
 import { formatPHP } from "@/lib/money";
+import { groupByDepartment } from "@/lib/departments";
+import { DepartmentGroupHeading } from "@/components/department-group-heading";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, ChevronRight, Users } from "lucide-react";
 
@@ -25,19 +27,29 @@ export default async function ReportsPeriodPage({
   if (!periodRow) notFound();
   const period = periodRow as PayrollPeriod;
 
-  const { data: entryRows } = await supabase
-    .from("payroll_entries")
-    .select("*, employees(*)")
-    .eq("period_id", id);
+  const [{ data: entryRows }, { data: departmentRows }] = await Promise.all([
+    supabase.from("payroll_entries").select("*, employees(*)").eq("period_id", id),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
+  const departments = (departmentRows ?? []) as Department[];
 
   const rows = (entryRows ?? [])
     .filter((e) => e.employees)
     .map((e) => {
       const { employees, ...entry } = e as PayrollEntry & { employees: Employee };
-      return { entry: entry as PayrollEntry, employee: employees as Employee };
-    })
-    .sort((a, b) => fullName(a.employee).localeCompare(fullName(b.employee)));
+      return {
+        entry: entry as PayrollEntry,
+        employee: employees as Employee,
+        department_id: employees.department_id,
+        last_name: employees.last_name,
+      };
+    });
 
+  const groups = groupByDepartment(rows, departments, { hideEmpty: true });
   const totalNet = rows.reduce((sum, r) => sum + r.entry.net_weekly_pay, 0);
 
   return (
@@ -76,32 +88,42 @@ export default async function ReportsPeriodPage({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3">
-          {rows.map(({ entry, employee }) => (
-            <Link key={employee.id} href={`/reports/${employee.id}`}>
-              <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
-                <CardContent className="flex items-center gap-4 p-4">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                    {`${employee.first_name[0] ?? ""}${employee.last_name[0] ?? ""}`.toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">{fullName(employee)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {entry.days_worked} days worked
-                    </p>
-                  </div>
-                  <p
-                    className={cn(
-                      "font-semibold tabular-nums",
-                      entry.net_weekly_pay <= 0 ? "text-destructive" : "text-success"
-                    )}
-                  >
-                    {formatPHP(entry.net_weekly_pay)}
-                  </p>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                </CardContent>
-              </Card>
-            </Link>
+        <div className="space-y-5">
+          {groups.map((group) => (
+            <div key={group.department?.id ?? "none"} className="space-y-2">
+              <DepartmentGroupHeading
+                name={group.department?.name ?? "No department"}
+                count={group.employees.length}
+              />
+              <div className="grid gap-3">
+                {group.employees.map(({ entry, employee }) => (
+                  <Link key={employee.id} href={`/reports/${employee.id}`}>
+                    <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
+                      <CardContent className="flex items-center gap-4 p-4">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {`${employee.first_name[0] ?? ""}${employee.last_name[0] ?? ""}`.toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{fullName(employee)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {entry.days_worked} days worked
+                          </p>
+                        </div>
+                        <p
+                          className={cn(
+                            "font-semibold tabular-nums",
+                            entry.net_weekly_pay <= 0 ? "text-destructive" : "text-success"
+                          )}
+                        >
+                          {formatPHP(entry.net_weekly_pay)}
+                        </p>
+                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

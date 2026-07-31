@@ -14,9 +14,10 @@ knowledge of Next.js APIs.
 An in-house weekly payroll system for a Philippine daily-wage workforce (back-office only — there
 is no employee self-service). Staff manage employee profiles, run payroll for a period
 employee-by-employee with live net-pay computation, finalize atomically (drawing down loan/advance
-balances), and generate payslip PDFs. Employees can be assigned to a department; the employee list
-and payroll processing order (roster, Prev/Next stepper, payslip PDF) are grouped/ordered by
-department. The UI/app title is "MMG HR and Payroll System";
+balances), and generate payslip PDFs. Employees can be assigned to a department; every screen that
+lists employees — the employee list, payroll roster, Reports period view, Prev/Next stepper, and
+the payslip PDF (including its company summary page, which subtotals per department) — is
+grouped/ordered by department. The UI/app title is "MMG HR and Payroll System";
 [README.md](README.md) still opens with the project's original name, "PayDay — HR & Payroll
 Computation System" — same codebase, not out of date otherwise.
 
@@ -138,10 +139,48 @@ transiently collide). `employees.department_id` is a nullable FK (`on delete set
 department never deletes employees, just unassigns them; the delete action warns first if any are
 still assigned). `src/lib/departments.ts` exports `sortEmployeesByDepartment`/`groupByDepartment`
 (order: department `sort_order`, then employee last name; unassigned employees sort last) — the
-single source of truth for department ordering, reused by the employee list
-(`employee-list.tsx`, rendered as department-grouped sections with a count badge each), the payroll
-roster and Prev/Next stepper (`payroll/[id]/page.tsx`, `payroll/[id]/[employeeId]/page.tsx`), and
-the payslip PDF (`payslip-document.tsx`).
+single source of truth for department ordering, reused by every screen that lists employees: the
+employee list (`employee-list.tsx`), the payroll roster (`payroll/[id]/page.tsx`) and Prev/Next
+stepper (`payroll/[id]/[employeeId]/page.tsx`), the Reports period view
+(`reports/period/[id]/page.tsx`), and the payslip PDF (`payslip-document.tsx`). The roster and
+Reports period view previously only *sorted* by department (no section headers); they now group
+with headers too, same as the employee list. `groupByDepartment` result types don't carry
+`department_id`/`last_name` at the top level for rows shaped like `{ entry, employee }` (payroll
+entries, payslip rows) — callers lift those two fields onto the row before grouping (see
+`toSortable` in `payslip-document.tsx` for the pattern) since the grouping/sorting functions require
+them there. Department section headers are the shared `DepartmentGroupHeading` component
+(`src/components/department-group-heading.tsx`, not `src/components/employees/`, since payroll and
+reports pages use it too) — deliberately `text-lg`, not `text-sm`, so a group name reads clearly
+larger than the row content beneath it; change it there once rather than per-page.
+
+The dashboard's "Active advances"/"Open loans" stat tiles link to `/employees?filter=advances` /
+`?filter=loans`, which narrows `EmployeeList` to just the affected employees (still department-
+grouped, empty groups hidden) and swaps the nickname column for each employee's balance. Note the
+loan tile's count is loan *records*, not people — one employee can hold both an SSS and a Pag-IBIG
+loan, so "3 open loans" can resolve to fewer than 3 people.
+
+### Advances & loans
+`src/lib/actions/obligations.ts`: loans (SSS/Pag-IBIG) are upserted per employee+type
+(`saveLoan`); advances are freeform records (label, `total_advance`, `current_balance`, up to
+`MAX_ADVANCES` = 5 active per employee, enforced both proactively in `createAdvance`/`updateAdvance`
+and by the `enforce_max_active_advances` DB trigger as defense-in-depth).
+
+`payroll_advance_payments` rows are normally written only by `finalize_payroll_period` (one row per
+advance actually deducted that period). `updateAdvance` can *also* write one: editing
+`current_balance` directly on an advance that already has payment history warns first (returns
+`{warning}`, needs a `confirm=true` resubmit — same pattern as `createPeriod`'s overlap warning),
+then on confirm writes a reconciling row with `payroll_entry_id = null` (marking it a manual
+adjustment, not a payroll-driven deduction; `amount` is the signed delta, `balance_after` the new
+balance, `note` free text). This exists because the two are otherwise read from different places —
+the Employee Report's "Advances balance" card reads `advances.current_balance` live, while its
+"Advance Payment History" card reads each payment's immutable `balance_after` snapshot — and a
+balance edited without this would leave the two silently disagreeing (this looked like a
+payroll double-deduction bug once; it wasn't one — see `20260731120000_advance_balance_adjustments.sql`
+for the fix and the reasoning). The Employee Report queries `payroll_advance_payments` by
+`advance_id` directly (not through an inner join on `payroll_entries`) so these null-entry rows
+still surface, rendered as "Manual adjustment" in place of a period. **The identical gap still
+exists for loans** (`payroll_loan_payments`/`updateLoan` has no equivalent reconciliation) — not
+fixed, out of scope so far.
 
 ### Money handling
 DB money columns are `numeric(12,2)`. The app never does arithmetic in floats/pesos — everything
@@ -182,7 +221,16 @@ swallows its own errors — a logging failure must never break the underlying mu
 company summary page. `@react-pdf/renderer` is listed in `serverExternalPackages` in
 `next.config.ts` so Turbopack/webpack don't try to bundle its native-ish deps — it's `require`d at
 runtime by the route handler at `src/app/(app)/payroll/[id]/pdf/route.ts`. For local inspection
-outside the app, `scripts/render-pdf.mts` renders directly to a file.
+outside the app, `scripts/render-pdf.mts` renders directly to a file. Both entry points fetch the
+same extra data and must stay in sync if `PayslipRow` changes.
+
+Each employee's SSS loan / Pag-IBIG loan / Advances deduction lines also show a "Remaining balance"
+— `PayslipRow`'s `sssLoanBalance`/`pagibigLoanBalance`/`advancesBalance`, computed by both entry
+points from `loans`/`advances` current state. This is deliberately the **live** balance, not a
+finalize-time snapshot (unlike the rate-snapshotting elsewhere in this pipeline) — a reprinted
+payslip shows current standing, matching the Employee Report's balance cards, not what the balance
+was at finalize time. The summary page groups rows by department with a subtotal per department
+(via `groupByDepartment`, same as the roster/Reports), plus the original grand total.
 
 ### Types
 `src/lib/types.ts` hand-mirrors the `payroll_entries`/`employees`/`advances`/`loans`/
@@ -195,3 +243,11 @@ base color) live in `src/components/ui`; feature components are grouped by domai
 `src/components/{employees,payroll,admin,reports}`. Forms use `react-hook-form` +
 `@hookform/resolvers/zod` against the same zod schemas the server actions validate with. Toasts via
 `sonner`, charts (Reports) via `recharts`, dark mode via `next-themes`.
+
+A form whose leave-guard checks react-hook-form's `isDirty` must call `reset(values)` right after
+every successful save. `isDirty` compares live values against the `defaultValues` captured at
+mount; `router.refresh()` re-fetches server data but doesn't remount the client form, so without
+`reset()`, `isDirty` stays stuck `true` forever after the *first* save, and the leave-guard fires
+even with nothing unsaved (this was a real bug in `employee-form.tsx`, fixed 2026-07-31).
+`compute-form.tsx` sidesteps this differently — it tracks its own saved-state signature
+(`savedSigRef`) rather than relying on `isDirty` at all.

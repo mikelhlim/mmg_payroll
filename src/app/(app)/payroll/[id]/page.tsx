@@ -12,7 +12,8 @@ import { formatPeriod } from "@/lib/payroll/period";
 import { daysMatch, periodDays } from "@/lib/payroll/validation";
 import { formatPHP } from "@/lib/money";
 import { fullName, type Department, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
-import { sortEmployeesByDepartment } from "@/lib/departments";
+import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
+import { DepartmentGroupHeading } from "@/components/department-group-heading";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, Circle, Download } from "lucide-react";
 
@@ -54,6 +55,8 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
         departments
       )
     : employees;
+
+  const rosterGroups = groupByDepartment(roster, departments, { hideEmpty: true });
 
   const range = { period_start: period.period_start, period_end: period.period_end };
   const expectedDays = periodDays(range);
@@ -170,52 +173,62 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3">
-          {roster.map((emp) => {
-            const entry = entryByEmployee.get(emp.id);
-            const computed = Boolean(entry);
-            const negative = entry ? entry.net_weekly_pay < 0 : false;
-            return (
-              <Link key={emp.id} href={`/payroll/${id}/${emp.id}`}>
-                <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
-                  <CardContent className="flex items-center gap-4 p-4">
-                    {computed ? (
-                      <CheckCircle2
-                        className={cn("h-6 w-6", negative ? "text-destructive" : "text-success")}
-                      />
-                    ) : (
-                      <Circle className="h-6 w-6 text-muted-foreground/40" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{fullName(emp)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {computed
-                          ? `${entry!.days_worked}d worked · ${entry!.days_on_leave}d leave`
-                          : "Not computed yet"}
-                        {computed && !entryDaysMatch(entry!) && (
-                          <span className="font-medium text-warning-foreground">
-                            {" "}
-                            · ≠ {expectedDays}-day period
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p
-                        className={cn(
-                          "font-semibold tabular-nums",
-                          negative ? "text-destructive" : computed ? "text-success" : "text-muted-foreground"
-                        )}
-                      >
-                        {computed ? formatPHP(entry!.net_weekly_pay) : "—"}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
+        <div className="space-y-5">
+          {rosterGroups.map((group) => (
+            <div key={group.department?.id ?? "none"} className="space-y-2">
+              <DepartmentGroupHeading
+                name={group.department?.name ?? "No department"}
+                count={group.employees.length}
+              />
+              <div className="grid gap-3">
+                {group.employees.map((emp) => {
+                  const entry = entryByEmployee.get(emp.id);
+                  const computed = Boolean(entry);
+                  const negative = entry ? entry.net_weekly_pay < 0 : false;
+                  return (
+                    <Link key={emp.id} href={`/payroll/${id}/${emp.id}`}>
+                      <Card className="transition-all hover:-translate-y-0.5 hover:shadow-md">
+                        <CardContent className="flex items-center gap-4 p-4">
+                          {computed ? (
+                            <CheckCircle2
+                              className={cn("h-6 w-6", negative ? "text-destructive" : "text-success")}
+                            />
+                          ) : (
+                            <Circle className="h-6 w-6 text-muted-foreground/40" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium">{fullName(emp)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {computed
+                                ? `${entry!.days_worked}d worked · ${entry!.days_on_leave}d leave`
+                                : "Not computed yet"}
+                              {computed && !entryDaysMatch(entry!) && (
+                                <span className="font-medium text-warning-foreground">
+                                  {" "}
+                                  · ≠ {expectedDays}-day period
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p
+                              className={cn(
+                                "font-semibold tabular-nums",
+                                negative ? "text-destructive" : computed ? "text-success" : "text-muted-foreground"
+                              )}
+                            >
+                              {computed ? formatPHP(entry!.net_weekly_pay) : "—"}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
