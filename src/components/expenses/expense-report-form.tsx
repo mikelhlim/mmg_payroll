@@ -1,24 +1,51 @@
 "use client";
 
 import { useTransition } from "react";
-import { useForm, useFieldArray, type Control, type UseFormRegister } from "react-hook-form";
+import {
+  useForm,
+  useFieldArray,
+  Controller,
+  type Control,
+  type UseFormRegister,
+} from "react-hook-form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { saveExpenseReport } from "@/lib/actions/expenses";
+import { saveExpenseReport, updateExpensePayrollLink } from "@/lib/actions/expenses";
 import { expenseTotals, padToMinRows, type ExpenseLineInput } from "@/lib/expenses/totals";
-import type { ExpenseItemsPayload } from "@/lib/validation/expenses";
-import { formatCentavos } from "@/lib/money";
+import type { ExpenseItemsPayload, PayrollLinkInput } from "@/lib/validation/expenses";
+import { formatCentavos, toCentavos } from "@/lib/money";
+import { formatPeriod } from "@/lib/payroll/period";
 import type { ExpenseCategory, ExpenseItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ExternalLink, Loader2, Plus, Save, Trash2 } from "lucide-react";
 
+export type FinalizedPayrollOption = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  netTotalCentavos: number;
+};
+
+type PayrollLinkMode = "none" | "run" | "manual";
+type PayrollLinkValues = {
+  mode: PayrollLinkMode;
+  payroll_period_id: string;
+  payroll_total_override: number;
+};
 type RowValues = { item_date: string; description: string; amount: number };
-type FormValues = { itemsByCategory: Record<string, RowValues[]> };
+type FormValues = { payrollLink: PayrollLinkValues; itemsByCategory: Record<string, RowValues[]> };
 
 // Same pattern as compute-form.tsx: the first keystroke in a field should
 // replace its value outright rather than requiring the user to clear it
@@ -43,15 +70,43 @@ function rowToLine(row: RowValues): ExpenseLineInput {
   };
 }
 
+function buildPayrollLinkDefaults(
+  payrollPeriodId: string | null,
+  payrollTotalOverride: number | null
+): PayrollLinkValues {
+  if (payrollPeriodId) {
+    return { mode: "run", payroll_period_id: payrollPeriodId, payroll_total_override: 0 };
+  }
+  if (payrollTotalOverride !== null) {
+    return { mode: "manual", payroll_period_id: "", payroll_total_override: payrollTotalOverride };
+  }
+  return { mode: "none", payroll_period_id: "", payroll_total_override: 0 };
+}
+
 function buildDefaults(
   categories: ExpenseCategory[],
-  itemsByCategory: Record<string, ExpenseItem[]>
+  itemsByCategory: Record<string, ExpenseItem[]>,
+  payrollPeriodId: string | null,
+  payrollTotalOverride: number | null
 ): FormValues {
   const result: Record<string, RowValues[]> = {};
   for (const c of categories) {
     result[c.id] = padToMinRows(itemsToLines(itemsByCategory[c.id] ?? [])).map(lineToRow);
   }
-  return { itemsByCategory: result };
+  return {
+    payrollLink: buildPayrollLinkDefaults(payrollPeriodId, payrollTotalOverride),
+    itemsByCategory: result,
+  };
+}
+
+function toPayrollLinkPayload(v: PayrollLinkValues): PayrollLinkInput {
+  if (v.mode === "run") {
+    return { payroll_period_id: v.payroll_period_id || null, payroll_total_override: null };
+  }
+  if (v.mode === "manual") {
+    return { payroll_period_id: null, payroll_total_override: Number(v.payroll_total_override) || 0 };
+  }
+  return { payroll_period_id: null, payroll_total_override: null };
 }
 
 export function ExpenseReportForm({
@@ -60,27 +115,47 @@ export function ExpenseReportForm({
   categories,
   itemsByCategory,
   payrollPeriodId,
-  payrollNetTotalCentavos,
+  payrollTotalOverride,
+  finalizedPayrollPeriods,
+  linkedPayrollPeriod,
 }: {
   expensePeriodId: string;
   finalized: boolean;
   categories: ExpenseCategory[];
   itemsByCategory: Record<string, ExpenseItem[]>;
-  payrollPeriodId: string;
-  payrollNetTotalCentavos: number;
+  payrollPeriodId: string | null;
+  payrollTotalOverride: number | null;
+  finalizedPayrollPeriods: FinalizedPayrollOption[];
+  /**
+   * The currently-linked run's own info, resolved regardless of whether
+   * that run is still finalized — a report doesn't freeze its live total
+   * just because the linked run isn't in finalizedPayrollPeriods anymore
+   * (e.g. it was reopened for amendment after this report linked to it).
+   */
+  linkedPayrollPeriod: FinalizedPayrollOption | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const ro = finalized; // read-only
 
   const { control, register, handleSubmit, getValues, reset, watch } = useForm<FormValues>({
-    defaultValues: buildDefaults(categories, itemsByCategory),
+    defaultValues: buildDefaults(categories, itemsByCategory, payrollPeriodId, payrollTotalOverride),
   });
 
   // Live preview: identical math to the server (expenseTotals is pure).
   const values = watch();
+  const linkedRun =
+    values.payrollLink.payroll_period_id === linkedPayrollPeriod?.id
+      ? linkedPayrollPeriod
+      : finalizedPayrollPeriods.find((r) => r.id === values.payrollLink.payroll_period_id);
+  const livePayrollCentavos =
+    values.payrollLink.mode === "run"
+      ? (linkedRun?.netTotalCentavos ?? 0)
+      : values.payrollLink.mode === "manual"
+        ? toCentavos(values.payrollLink.payroll_total_override)
+        : 0;
   const totals = expenseTotals({
-    payrollNetTotalCentavos,
+    payrollNetTotalCentavos: livePayrollCentavos,
     categories,
     itemsByCategory: Object.fromEntries(
       categories.map((c) => [c.id, (values.itemsByCategory[c.id] ?? []).map(rowToLine)])
@@ -100,7 +175,19 @@ export function ExpenseReportForm({
 
   function onSave() {
     const current = getValues();
+    if (current.payrollLink.mode === "run" && !current.payrollLink.payroll_period_id) {
+      toast.error("Select a payroll run, or switch to entering an amount manually.");
+      return;
+    }
     startTransition(async () => {
+      const linkRes = await updateExpensePayrollLink(
+        expensePeriodId,
+        toPayrollLinkPayload(current.payrollLink)
+      );
+      if ("error" in linkRes) {
+        toast.error(linkRes.error);
+        return;
+      }
       const res = await saveExpenseReport(expensePeriodId, toPayload(current));
       if ("error" in res) {
         toast.error(res.error);
@@ -119,16 +206,129 @@ export function ExpenseReportForm({
     <form onSubmit={handleSubmit(onSave)} className="space-y-5">
       <Card>
         <CardHeader>
+          <CardTitle>Payroll Total</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {ro ? (
+            <p className="text-sm text-muted-foreground">
+              {payrollPeriodId ? (
+                <>
+                  Linked to{" "}
+                  <Link href={`/payroll/${payrollPeriodId}`} className="underline hover:text-foreground">
+                    {linkedPayrollPeriod
+                      ? formatPeriod(linkedPayrollPeriod.period_start, linkedPayrollPeriod.period_end)
+                      : "that payroll run"}
+                  </Link>{" "}
+                  — the total stays live even now that this report is finalized.
+                </>
+              ) : payrollTotalOverride !== null ? (
+                `Entered manually: ${formatCentavos(toCentavos(payrollTotalOverride))}`
+              ) : (
+                "Not set."
+              )}
+            </p>
+          ) : (
+            <>
+              <Controller
+                control={control}
+                name="payrollLink.mode"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full sm:w-[320px]">
+                      <SelectValue>
+                        {(v: PayrollLinkMode) =>
+                          v === "run"
+                            ? "Link a finalized payroll run"
+                            : v === "manual"
+                              ? "Enter amount manually"
+                              : "Not set yet"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not set yet</SelectItem>
+                      <SelectItem value="run">Link a finalized payroll run</SelectItem>
+                      <SelectItem value="manual">Enter amount manually</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+
+              {values.payrollLink.mode === "run" &&
+                (finalizedPayrollPeriods.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No finalized payroll runs yet —{" "}
+                    <Link href="/payroll" className="underline hover:text-foreground">
+                      finalize one
+                    </Link>{" "}
+                    first, or enter an amount manually.
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="payrollLink.payroll_period_id"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="w-full sm:w-[320px]">
+                          <SelectValue>
+                            {(v: string) => {
+                              const r = finalizedPayrollPeriods.find((rr) => rr.id === v);
+                              return r
+                                ? `${formatPeriod(r.period_start, r.period_end)} · ${formatCentavos(r.netTotalCentavos)}`
+                                : "Select a payroll run";
+                            }}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {finalizedPayrollPeriods.map((r) => (
+                            <SelectItem key={r.id} value={r.id}>
+                              {formatPeriod(r.period_start, r.period_end)} ·{" "}
+                              {formatCentavos(r.netTotalCentavos)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                ))}
+
+              {values.payrollLink.mode === "manual" && (
+                <div className="w-full sm:w-[320px]">
+                  <MoneyInput
+                    onFocus={selectOnFocus}
+                    onMouseUp={preventMouseUpDeselect}
+                    {...register("payrollLink.payroll_total_override", { valueAsNumber: true })}
+                  />
+                </div>
+              )}
+
+              {values.payrollLink.mode === "none" && (
+                <p className="text-xs text-muted-foreground">
+                  This report can&apos;t be finalized until a payroll total is set.
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Total Expenses</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <Link
-              href={`/payroll/${payrollPeriodId}`}
-              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-            >
-              Current Payroll Total <ExternalLink className="h-3 w-3" />
-            </Link>
+            <span className="text-muted-foreground">
+              Current Payroll Total
+              {values.payrollLink.mode === "run" && linkedRun && (
+                <Link
+                  href={`/payroll/${linkedRun.id}`}
+                  className="ml-1 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </span>
             <span className="tabular-nums">{formatCentavos(totals.payrollTotalCentavos)}</span>
           </div>
           {categories.map((c) => (

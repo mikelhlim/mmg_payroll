@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import {
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -40,7 +41,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
-type CategoryFormValues = { name: string; defaultDescriptionsText: string };
+type CategoryFormValues = {
+  name: string;
+  defaultDescriptionsText: string;
+  per_item_pdf_pages: boolean;
+};
 
 function toDescriptions(text: string): string[] {
   return text
@@ -60,21 +65,32 @@ function ExpenseCategoryDialog({
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const isEdit = Boolean(category);
+  const emptyValues: CategoryFormValues = {
+    name: "",
+    defaultDescriptionsText: "",
+    per_item_pdf_pages: false,
+  };
   const {
     register,
     handleSubmit,
+    control,
     reset,
     formState: { errors },
   } = useForm<CategoryFormValues>({
     defaultValues: category
-      ? { name: category.name, defaultDescriptionsText: category.default_descriptions.join("\n") }
-      : { name: "", defaultDescriptionsText: "" },
+      ? {
+          name: category.name,
+          defaultDescriptionsText: category.default_descriptions.join("\n"),
+          per_item_pdf_pages: category.per_item_pdf_pages,
+        }
+      : emptyValues,
   });
 
   function onSubmit(values: CategoryFormValues) {
     const input: ExpenseCategoryInput = {
       name: values.name,
       default_descriptions: toDescriptions(values.defaultDescriptionsText),
+      per_item_pdf_pages: values.per_item_pdf_pages,
     };
     startTransition(async () => {
       const res = isEdit
@@ -86,7 +102,7 @@ function ExpenseCategoryDialog({
       }
       toast.success(isEdit ? "Expense type updated." : "Expense type added.");
       setOpen(false);
-      if (!isEdit) reset({ name: "", defaultDescriptionsText: "" });
+      if (!isEdit) reset(emptyValues);
       router.refresh();
     });
   }
@@ -128,6 +144,19 @@ function ExpenseCategoryDialog({
                 earlier one to carry descriptions forward from.
               </p>
             </div>
+            <Controller
+              control={control}
+              name="per_item_pdf_pages"
+              render={({ field }) => (
+                <label className="flex w-fit cursor-pointer items-center gap-2.5 text-sm">
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={(checked) => field.onChange(checked === true)}
+                  />
+                  <span>Give each item its own PDF page (in addition to the summary table)</span>
+                </label>
+              )}
+            />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={pending}>
@@ -257,7 +286,14 @@ function ExpenseCategoryRow({
           </Button>
         </div>
       </td>
-      <td className="py-3 pr-4 font-medium">{category.name}</td>
+      <td className="py-3 pr-4 font-medium">
+        {category.name}
+        {category.per_item_pdf_pages && (
+          <Badge variant="secondary" className="ml-2 align-middle text-[10px]">
+            Per-item PDF pages
+          </Badge>
+        )}
+      </td>
       <td className="max-w-[260px] py-3 pr-4 text-xs text-muted-foreground">
         {category.default_descriptions.length > 0 ? category.default_descriptions.join(", ") : "—"}
       </td>

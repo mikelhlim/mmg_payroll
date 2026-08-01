@@ -4,6 +4,7 @@ import { renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { ExpenseReportDocument } from "../src/lib/pdf/expense-report-document";
+import { resolvePayrollTotalCentavos } from "../src/lib/expenses/totals";
 
 const expensePeriodId = process.argv[2];
 const outPath = process.argv[3] ?? "/tmp/expense-report.pdf";
@@ -33,10 +34,9 @@ const { data: allCategories } = await c
   .from("expense_categories")
   .select("*")
   .order("sort_order", { ascending: true });
-const { data: entries } = await c
-  .from("payroll_entries")
-  .select("net_weekly_pay")
-  .eq("period_id", period.payroll_period_id);
+// Unfiltered — mirrors the PDF route: resolves whichever run (if any) is
+// linked, staying live even if that run has since been reopened to draft.
+const { data: entries } = await c.from("payroll_entries").select("period_id, net_weekly_pay");
 
 type RawExpenseItem = {
   category_id: string;
@@ -58,6 +58,7 @@ for (const item of (items ?? []) as RawExpenseItem[]) {
 const pdfCategories = categories.map((c) => ({
   id: c.id,
   name: c.name,
+  perItemPdfPages: Boolean(c.per_item_pdf_pages),
   items: (itemsByCategory.get(c.id) ?? []).map((i) => ({
     item_date: i.item_date,
     description: i.description,
@@ -65,10 +66,12 @@ const pdfCategories = categories.map((c) => ({
   })),
 }));
 
-const payrollNetTotalCentavos = (entries ?? []).reduce(
-  (sum, e) => sum + Math.round((e.net_weekly_pay ?? 0) * 100),
-  0
-);
+const netTotalByPayrollPeriod: Record<string, number> = {};
+for (const e of entries ?? []) {
+  netTotalByPayrollPeriod[e.period_id] =
+    (netTotalByPayrollPeriod[e.period_id] ?? 0) + Math.round((e.net_weekly_pay ?? 0) * 100);
+}
+const payrollNetTotalCentavos = resolvePayrollTotalCentavos(period, netTotalByPayrollPeriod);
 
 await renderToFile(
   createElement(ExpenseReportDocument, {

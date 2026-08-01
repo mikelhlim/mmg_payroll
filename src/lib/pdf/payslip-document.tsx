@@ -2,6 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
 import { fullName } from "@/lib/types";
 import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
+import { hideFromZeroNetReports } from "@/lib/payroll/report-exclusions";
 import { peso, dateRange } from "@/lib/pdf/format";
 
 // Balances are live ("as of now"), not a frozen finalize-time snapshot —
@@ -239,9 +240,13 @@ export function PayslipDocument({
   rows: PayslipRow[];
   departments: Department[];
 }) {
+  const visibleRows = rows.filter(
+    (r) => !hideFromZeroNetReports(r.employee.id, r.entry.net_weekly_pay)
+  );
+
   // Same processing order as the roster/stepper: department, then name.
-  const sorted = sortEmployeesByDepartment(rows.map(toSortable), departments);
-  const groups = groupByDepartment(rows.map(toSortable), departments, { hideEmpty: true });
+  const sorted = sortEmployeesByDepartment(visibleRows.map(toSortable), departments);
+  const groups = groupByDepartment(visibleRows.map(toSortable), departments, { hideEmpty: true });
   const grandTotal = sorted.reduce((s, r) => s + r.entry.net_weekly_pay, 0);
 
   return (

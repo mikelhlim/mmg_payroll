@@ -7,6 +7,7 @@ import {
   expenseTotals,
   isBlankItem,
   padToMinRows,
+  resolvePayrollTotalCentavos,
   type ExpenseLineInput,
 } from "./totals";
 
@@ -145,5 +146,42 @@ describe("expenseTotals", () => {
     });
     expect(totals.expensesTotalCentavos).toBe(0);
     expect(totals.grandTotalCentavos).toBe(0);
+  });
+});
+
+describe("resolvePayrollTotalCentavos", () => {
+  it("uses the linked run's live net total when payroll_period_id is set", () => {
+    const total = resolvePayrollTotalCentavos(
+      { payroll_period_id: "run-1", payroll_total_override: 999 },
+      { "run-1": 50000 }
+    );
+    // A linked run always wins over any override value that might also be
+    // present in storage — the two are meant to be mutually exclusive, and
+    // resolution must not silently blend them.
+    expect(total).toBe(50000);
+  });
+
+  it("falls back to zero when the linked run has no net total on record", () => {
+    const total = resolvePayrollTotalCentavos(
+      { payroll_period_id: "missing-run", payroll_total_override: null },
+      { "run-1": 50000 }
+    );
+    expect(total).toBe(0);
+  });
+
+  it("uses the manual override, converted to centavos, when no run is linked", () => {
+    const total = resolvePayrollTotalCentavos(
+      { payroll_period_id: null, payroll_total_override: 1234.5 },
+      {}
+    );
+    expect(total).toBe(123450);
+  });
+
+  it("is zero when neither a run nor an override is set", () => {
+    const total = resolvePayrollTotalCentavos(
+      { payroll_period_id: null, payroll_total_override: null },
+      { "run-1": 50000 }
+    );
+    expect(total).toBe(0);
   });
 });

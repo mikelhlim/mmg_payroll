@@ -116,6 +116,8 @@ export type ExpenseCategory = {
   name: string;
   sort_order: number;
   default_descriptions: string[];
+  /** When true, each line item in this category also gets its own detail page in the PDF. */
+  per_item_pdf_pages: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -125,7 +127,10 @@ export type ExpenseStatus = "draft" | "finalized";
 
 export type ExpensePeriod = {
   id: string;
-  payroll_period_id: string;
+  /** Linked finalized payroll run whose net-pay total is read live, or null if unlinked. */
+  payroll_period_id: string | null;
+  /** Manual payroll total in pesos, used only when payroll_period_id is null. */
+  payroll_total_override: number | null;
   period_start: string;
   period_end: string;
   status: ExpenseStatus;

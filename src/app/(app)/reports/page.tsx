@@ -3,6 +3,7 @@ import { PeriodReportList, type PeriodSummary } from "@/components/reports/perio
 import { ExpenseReportList, type ExpenseReportSummary } from "@/components/reports/expense-report-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toCentavos } from "@/lib/money";
+import { resolvePayrollTotalCentavos } from "@/lib/expenses/totals";
 import type { ExpenseItem, ExpensePeriod, PayrollEntry, PayrollPeriod } from "@/lib/types";
 
 export default async function ReportsPage() {
@@ -37,12 +38,10 @@ export default async function ReportsPage() {
 
   const expensePeriods = (expensePeriodRows ?? []) as ExpensePeriod[];
   const expenseItems = (expenseItemRows ?? []) as Pick<ExpenseItem, "expense_period_id" | "amount">[];
-  const netTotalByPayrollPeriod = new Map<string, number>();
+  const netTotalByPayrollPeriod: Record<string, number> = {};
   for (const e of entries) {
-    netTotalByPayrollPeriod.set(
-      e.period_id,
-      (netTotalByPayrollPeriod.get(e.period_id) ?? 0) + toCentavos(e.net_weekly_pay)
-    );
+    netTotalByPayrollPeriod[e.period_id] =
+      (netTotalByPayrollPeriod[e.period_id] ?? 0) + toCentavos(e.net_weekly_pay);
   }
   const expenseTotalByPeriod = new Map<string, number>();
   for (const item of expenseItems) {
@@ -58,7 +57,7 @@ export default async function ReportsPage() {
     status: p.status,
     note: p.note,
     grandTotalCentavos:
-      (netTotalByPayrollPeriod.get(p.payroll_period_id) ?? 0) + (expenseTotalByPeriod.get(p.id) ?? 0),
+      resolvePayrollTotalCentavos(p, netTotalByPayrollPeriod) + (expenseTotalByPeriod.get(p.id) ?? 0),
   }));
 
   return (

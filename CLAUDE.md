@@ -164,16 +164,17 @@ loan tile's count is loan *records*, not people — one employee can hold both a
 loan, so "3 open loans" can resolve to fewer than 3 people.
 
 ### Expense reports
-One `expense_periods` row per payroll run (`payroll_period_id` is a unique, `on delete restrict`
-FK — `deletePeriod()` in `src/lib/actions/payroll.ts` pre-checks for an attached report and
-returns a friendly error rather than letting the FK fire raw), mirroring the payroll period
-lifecycle (draft → save → finalize, amend-to-reopen) but with **no RPC for finalize/reopen** —
-unlike payroll, an expense report has no balance side-effects, so a single `UPDATE` is already
-atomic. Line items (`expense_items`) are grouped by an admin-managed `expense_categories` lookup
-table (mirrors `departments`: name, `sort_order`, reorder via a two-row swap), seeded with four
-types (Mau Expenses, Mau GCash/Transfer, Hardware Expenses, Miscellaneous Expenses — the last with
-seeded `default_descriptions`). Managed at `/admin/expense-types`
-(`src/components/admin/expense-type-management.tsx`,
+An expense report (`expense_periods`) is created **independently of any payroll run** — its own
+Start/End/Note dialog (`new-expense-report-dialog.tsx`, a near-exact copy of payroll's
+`new-period-dialog.tsx`, right down to reusing `analyzeNewPeriod` for the overlap/skipped-days
+warning and `unique (period_start, period_end)` for exact-duplicate rejection). It mirrors the
+payroll period lifecycle (draft → save → finalize, amend-to-reopen) but with **no RPC for
+finalize/reopen** — unlike payroll, an expense report has no balance side-effects, so a single
+`UPDATE` is already atomic. Line items (`expense_items`) are grouped by an admin-managed
+`expense_categories` lookup table (mirrors `departments`: name, `sort_order`, reorder via a
+two-row swap), seeded with four types (Mau Expenses, Mau GCash/Transfer, Hardware Expenses,
+Miscellaneous Expenses — the last with seeded `default_descriptions`). Managed at
+`/admin/expense-types` (`src/components/admin/expense-type-management.tsx`,
 `src/lib/actions/expense-categories.ts`). Deleting a type that has items on any report **archives**
 it (`is_active = false`) instead of hard-deleting, since `expense_items.category_id` is `on delete
 restrict` and past items are financial records — archived types disappear from new reports but
@@ -181,20 +182,37 @@ still render on the reports that reference them (both the editor and the PDF fil
 `is_active OR has items on this report`, duplicated in each entry point the same way the payslip
 PDF/route pair already duplicates its data-shaping).
 
+**Payroll total: link a finalized run, or type an amount (2026-08-01).** A report can't be
+finalized until one of these is set — enforced as a hard error in `finalizeExpenseReport`, not a
+warn-and-proceed like payroll's own gates:
+- **Link a finalized payroll run** — `payroll_period_id` (now nullable; a partial unique index
+  `where payroll_period_id is not null` still caps it at one expense report per linked run, same
+  as the old plain-unique constraint did). Only *finalized* runs are offered in the picker and
+  `updateExpensePayrollLink` re-validates that server-side, so once linked the total is guaranteed
+  live-correct going forward — it's re-read from `payroll_entries` on every render, even after this
+  report is finalized, so amending that payroll run later still moves this report's grand total and
+  reprinted PDF (matches how the payslip "Remaining balance" lines already behave). A linked run
+  still can't be deleted out from under its report: `deletePeriod()` in `src/lib/actions/payroll.ts`
+  pre-checks `expense_periods.payroll_period_id` and returns a friendly error rather than letting
+  the `on delete restrict` FK fire raw.
+- **Type an amount manually** — `payroll_total_override`, for a week payroll wasn't run for in this
+  system. Frozen; nothing re-reads it.
+
+The two are mutually exclusive: `updateExpensePayrollLink` always nulls out the other column
+server-side regardless of what the client sent, so storage can never have both set. `src/lib/expenses/totals.ts`'s `resolvePayrollTotalCentavos(period, netTotalByPayrollPeriodCentavos)`
+is the one pure function every read path (the editor's live preview, the PDF route, the dev PDF
+script, the `/expenses` and `/reports` list pages) calls to pick the right source — never inline
+`payroll_period_id ? ... : ...` duplicated per call site. In the editor
+(`expense-report-form.tsx`) both fields live in the same react-hook-form instance as the line
+items, so one "Save draft" click calls `updateExpensePayrollLink` then `saveExpenseReport`
+sequentially — still a single save button from the user's perspective.
+
 **Bug fixed same-day (2026-08-01):** the initial migration gave `expense_periods` a
 `before update` `set_updated_at` trigger but no `updated_at` column, so every `UPDATE` on the table
 (finalize, reopen) failed with `record "new" has no field "updated_at"` — caught during live-browser
 verification by checking the DB row directly after a Finalize click. Fixed by migration
 `20260801010000_fix_expense_periods_updated_at.sql`; `expense_items` and `expense_categories` both
 already had the column, only `expense_periods` was missing it.
-
-**Total Expenses is deliberately always live**, not a finalize-time snapshot: the Current Payroll
-Total line is `sum(payroll_entries.net_weekly_pay)` for the linked run, re-read on every render —
-amending the payroll run after the expense report is finalized changes its grand total and its
-reprinted PDF, matching how the payslip "Remaining balance" lines already behave. Finalizing an
-expense report while its linked payroll run is still a draft is *allowed*, only warned against
-(`finalizeExpenseReport` returns `{warning}` on the first call, same confirm-resubmit pattern as
-`createPeriod`'s overlap warning) — payroll's own finalize gate is unaffected.
 
 Blank rows (no description, no date, ₱0) are never persisted — `src/lib/expenses/totals.ts`'s
 `isBlankItem`/`padToMinRows` are the pure, unit-tested source of truth for this: `saveExpenseReport`
@@ -207,6 +225,20 @@ own `default_descriptions` when there's no earlier report to draw from (a brand-
 very first expense report). `expenseTotals()` (also in `totals.ts`) is the shared pure function
 behind both the live client-side preview (`expense-report-form.tsx`, watching the whole form the
 same way `compute-form.tsx` watches its payroll inputs) and the PDF.
+
+**Per-item PDF pages (2026-08-01).** `expense_categories.per_item_pdf_pages` (admin-editable
+checkbox in `expense-type-management.tsx`, seeded `true` only for Miscellaneous Expenses — a normal
+data-driven flag, not a category name hardcoded into the PDF renderer) makes
+`expense-report-document.tsx` emit one additional full page per line item for that category, after
+the normal summary table (the table still prints too — this is additive, not a replacement). Each
+page repeats the brand/period/status header and shows Date/Description/Amount at a larger size,
+because a page like this may be printed or handed out on its own rather than read in the sequence
+of the rest of the report. Implemented with react-pdf's `<View break>` (forces a new physical page
+regardless of where it falls in the auto-flowing `<Page>`), one `View` per item in a
+`.flatMap()` over categories filtered to `per_item_pdf_pages`. **Zero-amount items are skipped**
+(filtered to `item.amount > 0` before paging, per-category) — the summary table still shows every
+row including blank padding ones, but a padding row with nothing entered never gets its own page,
+and "Item X of Y" numbering reflects only the priced items, not the raw row count.
 
 ### Advances & loans
 `src/lib/actions/obligations.ts`: loans (SSS/Pag-IBIG) are upserted per employee+type
@@ -289,6 +321,16 @@ payslip shows current standing, matching the Employee Report's balance cards, no
 was at finalize time. The summary page groups rows by department with a subtotal per department
 (via `groupByDepartment`, same as the roster/Reports), plus the original grand total.
 
+**Hardcoded zero-net exclusion for two employees (2026-08-01).**
+`src/lib/payroll/report-exclusions.ts` exports `hideFromZeroNetReports(employeeId, netWeeklyPay)` —
+an explicit, acknowledged one-off, not a general rule — keyed by two real employee ids. When one of
+those two has exactly ₱0 net pay for a period, they're dropped from that period's payslip page, the
+payslip PDF's summary page (`PayslipDocument` filters once up front so `sorted`/`groups`/
+`grandTotal` all inherit it), and the equivalent web view, the Reports per-period page
+(`reports/period/[id]/page.tsx`). Deliberately **not** applied to the payroll roster/compute page
+(staff still need to see and pay every employee there) or to an employee's own payslip-history table
+on their profile page.
+
 ### Types
 `src/lib/types.ts` hand-mirrors the `payroll_entries`/`employees`/`advances`/`loans`/
 `payroll_periods`/`departments`/`expense_categories`/`expense_periods`/`expense_items` row shapes
@@ -309,3 +351,12 @@ mount; `router.refresh()` re-fetches server data but doesn't remount the client 
 even with nothing unsaved (this was a real bug in `employee-form.tsx`, fixed 2026-07-31).
 `compute-form.tsx` sidesteps this differently — it tracks its own saved-state signature
 (`savedSigRef`) rather than relying on `isDirty` at all.
+
+**Attendance fields, locked vs. independent (2026-08-01).** In `compute-form.tsx`, "Days on leave"
+is always disabled — never hand-editable, even in a draft — though it's still auto-computed as
+`expectedDays − days_worked` via `setValue` whenever days worked changes. It's rendered with a plain
+HTML `disabled` attribute, not react-hook-form's `disabled` register option: that option excludes
+the field's value from RHF's tracked form state entirely, which would've made every save zero it
+out. "Sleep days" has the opposite property — no auto-fill relationship to days worked at all (an
+older convenience that copied days-worked into sleep-days until first touched was removed); it only
+ever changes when the user types into it directly.

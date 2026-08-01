@@ -3,6 +3,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ExpenseReportDocument, type ExpensePdfCategory } from "@/lib/pdf/expense-report-document";
 import { toCentavos } from "@/lib/money";
+import { resolvePayrollTotalCentavos } from "@/lib/expenses/totals";
 import type { ExpenseCategory, ExpenseItem, ExpensePeriod, PayrollEntry } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -31,10 +32,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       .eq("expense_period_id", id)
       .order("sort_order", { ascending: true }),
     supabase.from("expense_categories").select("*").order("sort_order", { ascending: true }),
-    supabase
-      .from("payroll_entries")
-      .select("net_weekly_pay")
-      .eq("period_id", period.payroll_period_id),
+    // Unfiltered — resolvePayrollTotalCentavos looks up whichever run (if
+    // any) is linked, and this must stay live even if that run has since
+    // been reopened to draft.
+    supabase.from("payroll_entries").select("period_id, net_weekly_pay"),
   ]);
 
   const items = (itemRows ?? []) as ExpenseItem[];
@@ -54,6 +55,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const pdfCategories: ExpensePdfCategory[] = categories.map((c) => ({
     id: c.id,
     name: c.name,
+    perItemPdfPages: c.per_item_pdf_pages,
     items: (itemsByCategory.get(c.id) ?? []).map((i) => ({
       item_date: i.item_date,
       description: i.description,
@@ -61,8 +63,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     })),
   }));
 
-  const netEntries = (entryRows ?? []) as Pick<PayrollEntry, "net_weekly_pay">[];
-  const payrollNetTotalCentavos = netEntries.reduce((sum, e) => sum + toCentavos(e.net_weekly_pay), 0);
+  const netEntries = (entryRows ?? []) as Pick<PayrollEntry, "period_id" | "net_weekly_pay">[];
+  const netTotalByPayrollPeriod: Record<string, number> = {};
+  for (const e of netEntries) {
+    netTotalByPayrollPeriod[e.period_id] = (netTotalByPayrollPeriod[e.period_id] ?? 0) + toCentavos(e.net_weekly_pay);
+  }
+  const payrollNetTotalCentavos = resolvePayrollTotalCentavos(period, netTotalByPayrollPeriod);
 
   // ExpenseReportDocument returns a <Document>; cast past renderToBuffer's
   // strict ReactElement<DocumentProps> param (it renders the component fine

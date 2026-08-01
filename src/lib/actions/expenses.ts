@@ -7,16 +7,25 @@ import { logTransaction } from "@/lib/transaction-log";
 import {
   expenseReportSchema,
   expenseItemsPayloadSchema,
+  payrollLinkSchema,
   type ExpenseReportInput,
   type ExpenseItemsPayload,
+  type PayrollLinkInput,
 } from "@/lib/validation/expenses";
 import { formatPeriod } from "@/lib/payroll/period";
+import { analyzeNewPeriod } from "@/lib/payroll/validation";
 import { carryForwardDescriptions, isBlankItem, type ExpenseLineInput } from "@/lib/expenses/totals";
 import type { ExpenseCategory, ExpenseItem } from "@/lib/types";
 
-export type CreateExpenseReportResult = { error: string } | { ok: true; id: string };
+export type CreateExpenseReportResult =
+  | { error: string }
+  | { warning: string }
+  | { ok: true; id: string };
 
-export async function createExpenseReport(raw: ExpenseReportInput): Promise<CreateExpenseReportResult> {
+export async function createExpenseReport(
+  raw: ExpenseReportInput,
+  confirm = false
+): Promise<CreateExpenseReportResult> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
 
@@ -24,12 +33,33 @@ export async function createExpenseReport(raw: ExpenseReportInput): Promise<Crea
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const v = parsed.data;
 
-  const { data: payrollPeriod } = await supabase
-    .from("payroll_periods")
-    .select("period_start, period_end")
-    .eq("id", v.payroll_period_id)
-    .maybeSingle();
-  if (!payrollPeriod) return { error: "Payroll run not found." };
+  // Overlap / skipped-days check against other expense reports — same
+  // pattern as payroll's createPeriod, now that a report's dates are entered
+  // directly rather than derived from a linked payroll run.
+  if (!confirm) {
+    const { data: existing } = await supabase
+      .from("expense_periods")
+      .select("period_start, period_end");
+    const analysis = analyzeNewPeriod(existing ?? [], v);
+    if (analysis.overlap) {
+      return {
+        warning: `This period overlaps an existing expense report (${formatPeriod(
+          analysis.overlap.period_start,
+          analysis.overlap.period_end
+        )}). Proceed anyway?`,
+      };
+    }
+    if (analysis.gapDays > 0) {
+      return {
+        warning: `There ${analysis.gapDays === 1 ? "is" : "are"} ${analysis.gapDays} skipped day${
+          analysis.gapDays === 1 ? "" : "s"
+        } between the previous report (${formatPeriod(
+          analysis.precededBy!.period_start,
+          analysis.precededBy!.period_end
+        )}) and this one. Proceed anyway?`,
+      };
+    }
+  }
 
   const {
     data: { user },
@@ -38,9 +68,8 @@ export async function createExpenseReport(raw: ExpenseReportInput): Promise<Crea
   const { data, error } = await supabase
     .from("expense_periods")
     .insert({
-      payroll_period_id: v.payroll_period_id,
-      period_start: payrollPeriod.period_start,
-      period_end: payrollPeriod.period_end,
+      period_start: v.period_start,
+      period_end: v.period_end,
       note: v.note.trim() || null,
       created_by: user?.id ?? null,
     })
@@ -49,7 +78,7 @@ export async function createExpenseReport(raw: ExpenseReportInput): Promise<Crea
 
   if (error) {
     if (error.code === "23505") {
-      return { error: "This payroll run already has an expense report." };
+      return { error: "An expense report for these exact dates already exists." };
     }
     return { error: error.message };
   }
@@ -64,7 +93,7 @@ export async function createExpenseReport(raw: ExpenseReportInput): Promise<Crea
     supabase
       .from("expense_periods")
       .select("id")
-      .lt("period_start", payrollPeriod.period_start)
+      .lt("period_start", v.period_start)
       .order("period_start", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -113,7 +142,7 @@ export async function createExpenseReport(raw: ExpenseReportInput): Promise<Crea
     action: "create",
     entity: "expense_period",
     entity_id: data.id,
-    summary: `Created expense report ${formatPeriod(payrollPeriod.period_start, payrollPeriod.period_end)}`,
+    summary: `Created expense report ${formatPeriod(v.period_start, v.period_end)}`,
   });
 
   revalidatePath("/expenses");
@@ -180,35 +209,96 @@ export async function saveExpenseReport(
   return { ok: true };
 }
 
-export type FinalizeExpenseResult = { error: string } | { warning: string } | { ok: true };
+export type UpdateExpensePayrollLinkResult = { error: string } | { ok: true };
 
-export async function finalizeExpenseReport(
+/**
+ * Attach (or clear) the payroll total: link a finalized payroll run — whose
+ * net-pay total is read live from then on, even after this report is
+ * finalized — or type a manual amount for a week with no matching run in the
+ * system. The two are mutually exclusive; whichever field is provided wins
+ * and the other is cleared, regardless of what the client sent for it.
+ */
+export async function updateExpensePayrollLink(
   id: string,
-  confirm = false
-): Promise<FinalizeExpenseResult> {
+  raw: PayrollLinkInput
+): Promise<UpdateExpensePayrollLinkResult> {
+  const supabase = await createClient();
+  await assertAuthenticated(supabase);
+
+  const parsed = payrollLinkSchema.safeParse(raw);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const v = parsed.data;
+
+  const { data: period } = await supabase
+    .from("expense_periods")
+    .select("status, period_start, period_end")
+    .eq("id", id)
+    .maybeSingle();
+  if (!period) return { error: "Expense report not found." };
+  if (period.status === "finalized") {
+    return { error: "This expense report is already finalized and can't be changed." };
+  }
+
+  let payrollPeriodId: string | null = null;
+  let payrollTotalOverride: number | null = null;
+
+  if (v.payroll_period_id) {
+    const { data: run } = await supabase
+      .from("payroll_periods")
+      .select("status")
+      .eq("id", v.payroll_period_id)
+      .maybeSingle();
+    if (!run) return { error: "Payroll run not found." };
+    if (run.status !== "finalized") {
+      return { error: "Only a finalized payroll run can be linked." };
+    }
+    payrollPeriodId = v.payroll_period_id;
+  } else if (v.payroll_total_override !== null) {
+    payrollTotalOverride = v.payroll_total_override;
+  }
+
+  const { error } = await supabase
+    .from("expense_periods")
+    .update({ payroll_period_id: payrollPeriodId, payroll_total_override: payrollTotalOverride })
+    .eq("id", id);
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "That payroll run is already linked to another expense report." };
+    }
+    return { error: error.message };
+  }
+
+  await logTransaction(supabase, {
+    action: "update",
+    entity: "expense_period",
+    entity_id: id,
+    summary: `Updated payroll total for expense report ${formatPeriod(period.period_start, period.period_end)}`,
+  });
+
+  revalidatePath(`/expenses/${id}`);
+  revalidatePath("/expenses");
+  revalidatePath("/reports");
+  return { ok: true };
+}
+
+export type FinalizeExpenseResult = { error: string } | { ok: true };
+
+export async function finalizeExpenseReport(id: string): Promise<FinalizeExpenseResult> {
   const supabase = await createClient();
   await assertAuthenticated(supabase);
 
   const { data: period } = await supabase
     .from("expense_periods")
-    .select("status, period_start, period_end, payroll_period_id")
+    .select("status, period_start, period_end, payroll_period_id, payroll_total_override")
     .eq("id", id)
     .maybeSingle();
   if (!period) return { error: "Expense report not found." };
   if (period.status === "finalized") return { error: "This expense report is already finalized." };
-
-  if (!confirm) {
-    const { data: payrollPeriod } = await supabase
-      .from("payroll_periods")
-      .select("status")
-      .eq("id", period.payroll_period_id)
-      .maybeSingle();
-    if (payrollPeriod && payrollPeriod.status !== "finalized") {
-      return {
-        warning:
-          "The payroll run for this week isn't finalized yet — the payroll total may still change. Finalize anyway?",
-      };
-    }
+  if (!period.payroll_period_id && period.payroll_total_override === null) {
+    return {
+      error:
+        "Set a payroll total first — link a finalized payroll run or enter an amount — before finalizing.",
+    };
   }
 
   const { error } = await supabase

@@ -7,6 +7,8 @@ import { fromCentavos } from "@/lib/money";
 export type ExpensePdfCategory = {
   id: string;
   name: string;
+  /** When true, each item in this category also gets its own detail page below. */
+  perItemPdfPages: boolean;
   items: ExpenseLineInput[];
 };
 
@@ -70,6 +72,18 @@ const styles = StyleSheet.create({
   subtotalValue: { width: 80, textAlign: "right", fontFamily: "Helvetica-Bold", fontSize: 7 },
   emptyNote: { fontSize: 7, color: "#9ca3af", fontStyle: "italic", paddingVertical: 4, paddingHorizontal: 6 },
   footer: { position: "absolute", bottom: 20, left: 28, right: 28, fontSize: 8, color: "#9ca3af", textAlign: "center" },
+
+  // Per-item detail page: each item is a self-contained voucher (repeats the
+  // brand/period/status context, since it may be printed or handed out on
+  // its own rather than read in sequence with the rest of the report).
+  itemPageHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 3 },
+  itemPagePeriod: { fontSize: 7, color: "#6b7280", marginBottom: 4 },
+  itemPageCategory: { fontSize: 14, fontFamily: "Helvetica-Bold", color: "#6d4bd8", marginTop: 24 },
+  itemPageIndex: { fontSize: 8, color: "#9ca3af", marginBottom: 20 },
+  itemPageFieldRow: { marginBottom: 16 },
+  itemPageFieldLabel: { fontSize: 7, fontFamily: "Helvetica-Bold", letterSpacing: 1, color: "#9ca3af", marginBottom: 3 },
+  itemPageFieldValue: { fontSize: 11, color: "#1e1b2e" },
+  itemPageAmountValue: { fontSize: 20, fontFamily: "Helvetica-Bold", color: "#6d4bd8" },
 });
 
 export function ExpenseReportDocument({
@@ -152,6 +166,48 @@ export function ExpenseReportDocument({
             </View>
           </View>
         ))}
+
+        {categories
+          .filter((c) => c.perItemPdfPages)
+          .flatMap((c) => {
+            // Padding/blank rows (amount 0) never get their own page — a
+            // detail page only makes sense for an item someone actually
+            // entered a cost for.
+            const pricedItems = c.items.filter((item) => item.amount > 0);
+            return pricedItems.map((item, idx) => (
+              <View key={`${c.id}-${idx}`} break>
+                <View style={styles.itemPageHeader}>
+                  <Text style={styles.brand}>MMG HR &amp; Payroll</Text>
+                  <Text style={finalized ? styles.docType : styles.draftBadge}>
+                    {finalized ? "EXPENSE ITEM" : "EXPENSE ITEM · DRAFT"}
+                  </Text>
+                </View>
+                <Text style={styles.itemPagePeriod}>
+                  {dateRange(period)}
+                  {period.note ? ` · ${period.note}` : ""}
+                </Text>
+                <View style={styles.rule} />
+
+                <Text style={styles.itemPageCategory}>{c.name}</Text>
+                <Text style={styles.itemPageIndex}>
+                  Item {idx + 1} of {pricedItems.length}
+                </Text>
+
+                <View style={styles.itemPageFieldRow}>
+                  <Text style={styles.itemPageFieldLabel}>DATE</Text>
+                  <Text style={styles.itemPageFieldValue}>{item.item_date ?? "—"}</Text>
+                </View>
+                <View style={styles.itemPageFieldRow}>
+                  <Text style={styles.itemPageFieldLabel}>DESCRIPTION</Text>
+                  <Text style={styles.itemPageFieldValue}>{item.description || "—"}</Text>
+                </View>
+                <View style={styles.itemPageFieldRow}>
+                  <Text style={styles.itemPageFieldLabel}>AMOUNT</Text>
+                  <Text style={styles.itemPageAmountValue}>{peso(item.amount)}</Text>
+                </View>
+              </View>
+            ));
+          })}
 
         <Text
           style={styles.footer}

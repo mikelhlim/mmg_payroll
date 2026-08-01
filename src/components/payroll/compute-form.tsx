@@ -136,7 +136,6 @@ export function ComputeForm({
     handleSubmit,
     watch,
     setValue,
-    formState: { dirtyFields },
   } = useForm<FormValues>({
     defaultValues: defaults(employee, advances, entry),
   });
@@ -249,11 +248,10 @@ export function ComputeForm({
 
   const num = (name: keyof FormValues) => register(name, { valueAsNumber: true, disabled: ro });
 
-  // Days worked auto-fills leave = period days − worked, and defaults sleep
-  // days to match days worked as a convenience — but only until the user has
-  // edited sleep days directly, at which point it's independent from then on
-  // (sleep can legitimately differ from, or exceed, days worked). Overtime
-  // days may never exceed days worked.
+  // Days worked auto-fills leave = period days − worked; leave is derived and
+  // never directly editable. Sleep days is fully independent of days worked —
+  // it is never auto-filled, since sleep can legitimately differ from, or
+  // exceed, days worked. Overtime days may never exceed days worked.
   const daysWorkedReg = register("days_worked", {
     valueAsNumber: true,
     disabled: ro,
@@ -261,9 +259,6 @@ export function ComputeForm({
       if (ro) return;
       const w = Number(e.target.value) || 0;
       setValue("days_on_leave", Math.max(0, expectedDays - w), { shouldDirty: true });
-      if (!dirtyFields.sleep_days) {
-        setValue("sleep_days", w, { shouldDirty: true });
-      }
       if ((Number(values.overtime_days) || 0) > w) {
         setValue("overtime_days", w, { shouldDirty: true });
       }
@@ -365,9 +360,8 @@ export function ComputeForm({
                   type="number"
                   step="0.5"
                   min="0"
-                  onFocus={selectOnFocus}
-                  onMouseUp={preventMouseUpDeselect}
-                  {...num("days_on_leave")}
+                  disabled
+                  {...register("days_on_leave", { valueAsNumber: true })}
                 />
                 <p className="text-xs text-muted-foreground">auto-filled from days worked</p>
               </div>

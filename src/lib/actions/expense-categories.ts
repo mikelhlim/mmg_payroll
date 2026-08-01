@@ -24,6 +24,7 @@ export async function createExpenseCategory(raw: ExpenseCategoryInput): Promise<
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const name = parsed.data.name.trim();
   const default_descriptions = cleanDescriptions(parsed.data.default_descriptions);
+  const per_item_pdf_pages = parsed.data.per_item_pdf_pages;
 
   const { data: maxRow } = await supabase
     .from("expense_categories")
@@ -35,7 +36,7 @@ export async function createExpenseCategory(raw: ExpenseCategoryInput): Promise<
 
   const { data, error } = await supabase
     .from("expense_categories")
-    .insert({ name, sort_order: nextOrder, default_descriptions })
+    .insert({ name, sort_order: nextOrder, default_descriptions, per_item_pdf_pages })
     .select("id")
     .single();
   if (error) {
@@ -60,10 +61,11 @@ export async function updateExpenseCategory(id: string, raw: ExpenseCategoryInpu
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   const name = parsed.data.name.trim();
   const default_descriptions = cleanDescriptions(parsed.data.default_descriptions);
+  const per_item_pdf_pages = parsed.data.per_item_pdf_pages;
 
   const { error } = await supabase
     .from("expense_categories")
-    .update({ name, default_descriptions })
+    .update({ name, default_descriptions, per_item_pdf_pages })
     .eq("id", id);
   if (error) {
     if (error.code === "23505") return { error: "An expense type with this name already exists." };

@@ -7,6 +7,7 @@ import { fullName, type Department, type Employee, type PayrollEntry, type Payro
 import { formatPeriod } from "@/lib/payroll/period";
 import { formatPHP } from "@/lib/money";
 import { groupByDepartment } from "@/lib/departments";
+import { hideFromZeroNetReports } from "@/lib/payroll/report-exclusions";
 import { DepartmentGroupHeading } from "@/components/department-group-heading";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, ChevronRight, Users } from "lucide-react";
@@ -47,7 +48,8 @@ export default async function ReportsPeriodPage({
         department_id: employees.department_id,
         last_name: employees.last_name,
       };
-    });
+    })
+    .filter((r) => !hideFromZeroNetReports(r.employee.id, r.entry.net_weekly_pay));
 
   const groups = groupByDepartment(rows, departments, { hideEmpty: true });
   const totalNet = rows.reduce((sum, r) => sum + r.entry.net_weekly_pay, 0);

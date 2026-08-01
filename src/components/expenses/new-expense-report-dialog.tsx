@@ -1,24 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { toast } from "sonner";
 import { createExpenseReport } from "@/lib/actions/expenses";
 import { expenseReportSchema, type ExpenseReportInput } from "@/lib/validation/expenses";
-import { formatPeriod } from "@/lib/payroll/period";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { defaultPeriod } from "@/lib/payroll/period";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -28,113 +20,110 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Receipt } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Receipt } from "lucide-react";
 
-export type AvailablePayrollPeriod = {
-  id: string;
-  period_start: string;
-  period_end: string;
-  status: "draft" | "finalized";
-};
-
-export function NewExpenseReportDialog({
-  payrollPeriods,
-}: {
-  payrollPeriods: AvailablePayrollPeriod[];
-}) {
+export function NewExpenseReportDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  const [warning, setWarning] = useState<string | null>(null);
+
   const {
     register,
     handleSubmit,
-    control,
+    getValues,
     formState: { errors },
   } = useForm<ExpenseReportInput>({
     resolver: zodResolver(expenseReportSchema),
-    defaultValues: { payroll_period_id: payrollPeriods[0]?.id ?? "", note: "" },
+    defaultValues: { ...defaultPeriod(), note: "" },
   });
 
-  function submit(values: ExpenseReportInput) {
+  function submit(values: ExpenseReportInput, confirm: boolean) {
     startTransition(async () => {
-      const res = await createExpenseReport(values);
+      const res = await createExpenseReport(values, confirm);
       if ("error" in res) {
         toast.error(res.error);
         return;
       }
+      if ("warning" in res) {
+        setWarning(res.warning);
+        return;
+      }
       toast.success("Expense report created.");
+      setWarning(null);
       setOpen(false);
       router.push(`/expenses/${res.id}`);
     });
   }
 
-  if (payrollPeriods.length === 0) {
-    return (
-      <Link href="/payroll" className={buttonVariants({ variant: "outline" })}>
-        <Receipt className="h-4 w-4" /> Every payroll run has a report
-      </Link>
-    );
-  }
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setWarning(null);
+      }}
+    >
       <DialogTrigger render={<Button />}>
         <Plus className="h-4 w-4" /> New expense report
       </DialogTrigger>
       <DialogContent>
-        <form onSubmit={handleSubmit(submit)}>
+        <form onSubmit={handleSubmit((v) => submit(v, false))}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-primary" /> New expense report
             </DialogTitle>
-            <DialogDescription>Pick the payroll week this expense report covers.</DialogDescription>
+            <DialogDescription>
+              Defaults to this week (Saturday–Friday). Adjust the dates if needed — you can attach a
+              payroll total afterward, once one is available.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="payroll_period_id">Payroll week</Label>
-              <Controller
-                control={control}
-                name="payroll_period_id"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="payroll_period_id" className="w-full">
-                      <SelectValue>
-                        {(v: string) => {
-                          const p = payrollPeriods.find((pp) => pp.id === v);
-                          return p
-                            ? `${formatPeriod(p.period_start, p.period_end)} · ${
-                                p.status === "finalized" ? "Finalized" : "Draft"
-                              }`
-                            : "Select a payroll run";
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {payrollPeriods.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {formatPeriod(p.period_start, p.period_end)} ·{" "}
-                          {p.status === "finalized" ? "Finalized" : "Draft"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="period_start">Start (Saturday)</Label>
+                <Input id="period_start" type="date" {...register("period_start")} />
+                {errors.period_start && (
+                  <p className="text-xs text-destructive">{errors.period_start.message}</p>
                 )}
-              />
-              {errors.payroll_period_id && (
-                <p className="text-xs text-destructive">{errors.payroll_period_id.message}</p>
-              )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="period_end">End (Friday)</Label>
+                <Input id="period_end" type="date" {...register("period_end")} />
+                {errors.period_end && (
+                  <p className="text-xs text-destructive">{errors.period_end.message}</p>
+                )}
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="note">Note (optional)</Label>
               <Input id="note" placeholder="e.g. Week 5" {...register("note")} />
             </div>
           </div>
+          {warning && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg bg-warning/15 px-3 py-2 text-sm text-warning-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{warning}</span>
+            </div>
+          )}
           <DialogFooter>
-            <Button type="submit" disabled={pending}>
-              {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Create report
-            </Button>
+            {warning ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                onClick={() => submit(getValues(), true)}
+              >
+                {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Proceed anyway
+              </Button>
+            ) : (
+              <Button type="submit" disabled={pending}>
+                {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                Create report
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

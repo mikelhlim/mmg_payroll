@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ExpenseReportForm } from "@/components/expenses/expense-report-form";
+import { ExpenseReportForm, type FinalizedPayrollOption } from "@/components/expenses/expense-report-form";
 import { FinalizeExpenseButton } from "@/components/expenses/finalize-expense-button";
 import { AmendExpenseButton } from "@/components/expenses/amend-expense-button";
 import { DeleteExpenseButton } from "@/components/expenses/delete-expense-button";
@@ -9,13 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { formatPeriod } from "@/lib/payroll/period";
 import { toCentavos } from "@/lib/money";
-import type {
-  ExpenseCategory,
-  ExpenseItem,
-  ExpensePeriod,
-  PayrollEntry,
-  PayrollPeriod,
-} from "@/lib/types";
+import type { ExpenseCategory, ExpenseItem, ExpensePeriod, PayrollEntry, PayrollPeriod } from "@/lib/types";
 import { ArrowLeft, Download } from "lucide-react";
 
 export default async function ExpenseReportPage({ params }: { params: Promise<{ id: string }> }) {
@@ -31,7 +25,7 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   const period = periodRow as ExpensePeriod;
   const finalized = period.status === "finalized";
 
-  const [{ data: itemRows }, { data: categoryRows }, { data: payrollPeriodRow }, { data: entryRows }] =
+  const [{ data: itemRows }, { data: categoryRows }, { data: finalizedPayrollRows }, { data: entryRows }] =
     await Promise.all([
       supabase
         .from("expense_items")
@@ -39,11 +33,15 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
         .eq("expense_period_id", id)
         .order("sort_order", { ascending: true }),
       supabase.from("expense_categories").select("*").order("sort_order", { ascending: true }),
-      supabase.from("payroll_periods").select("*").eq("id", period.payroll_period_id).maybeSingle(),
+      // Every finalized payroll run is offered as a link target — not just
+      // one matching this report's dates — since a report can now be created
+      // for a period before, or independently of, any particular run.
       supabase
-        .from("payroll_entries")
-        .select("net_weekly_pay")
-        .eq("period_id", period.payroll_period_id),
+        .from("payroll_periods")
+        .select("id, period_start, period_end")
+        .eq("status", "finalized")
+        .order("period_start", { ascending: false }),
+      supabase.from("payroll_entries").select("period_id, net_weekly_pay"),
     ]);
 
   const items = (itemRows ?? []) as ExpenseItem[];
@@ -53,9 +51,45 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
   // items on THIS report, so past reports keep rendering their history.
   const categories = allCategories.filter((c) => c.is_active || usedCategoryIds.has(c.id));
 
-  const payrollPeriod = payrollPeriodRow as PayrollPeriod | null;
-  const netEntries = (entryRows ?? []) as Pick<PayrollEntry, "net_weekly_pay">[];
-  const payrollNetTotalCentavos = netEntries.reduce((sum, e) => sum + toCentavos(e.net_weekly_pay), 0);
+  const finalizedRuns = (finalizedPayrollRows ?? []) as Pick<
+    PayrollPeriod,
+    "id" | "period_start" | "period_end"
+  >[];
+  const netEntries = (entryRows ?? []) as Pick<PayrollEntry, "period_id" | "net_weekly_pay">[];
+  const netTotalByPayrollPeriod: Record<string, number> = {};
+  for (const e of netEntries) {
+    netTotalByPayrollPeriod[e.period_id] = (netTotalByPayrollPeriod[e.period_id] ?? 0) + toCentavos(e.net_weekly_pay);
+  }
+  const finalizedPayrollPeriods: FinalizedPayrollOption[] = finalizedRuns.map((r) => ({
+    id: r.id,
+    period_start: r.period_start,
+    period_end: r.period_end,
+    netTotalCentavos: netTotalByPayrollPeriod[r.id] ?? 0,
+  }));
+
+  // The linked run's total must stay live even if it's since been reopened
+  // to draft (no longer in the finalized list above) — a finalized expense
+  // report doesn't freeze once linked. Only hit the DB again for this rare
+  // case; the common case is already covered by finalizedPayrollPeriods.
+  let linkedPayrollPeriod: FinalizedPayrollOption | null = null;
+  if (period.payroll_period_id) {
+    linkedPayrollPeriod = finalizedPayrollPeriods.find((r) => r.id === period.payroll_period_id) ?? null;
+    if (!linkedPayrollPeriod) {
+      const { data: runRow } = await supabase
+        .from("payroll_periods")
+        .select("id, period_start, period_end")
+        .eq("id", period.payroll_period_id)
+        .maybeSingle();
+      if (runRow) {
+        linkedPayrollPeriod = {
+          id: runRow.id,
+          period_start: runRow.period_start,
+          period_end: runRow.period_end,
+          netTotalCentavos: netTotalByPayrollPeriod[runRow.id] ?? 0,
+        };
+      }
+    }
+  }
 
   const itemsByCategory: Record<string, ExpenseItem[]> = {};
   for (const item of items) {
@@ -89,8 +123,8 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
           </div>
           <p className="text-muted-foreground">
             {period.note ? period.note : "Expense report"}
-            {payrollPeriod && payrollPeriod.status !== "finalized" && (
-              <span className="text-warning-foreground"> · linked payroll run is still a draft</span>
+            {!finalized && !period.payroll_period_id && period.payroll_total_override === null && (
+              <span className="text-warning-foreground"> · payroll total not set yet</span>
             )}
           </p>
         </div>
@@ -120,7 +154,9 @@ export default async function ExpenseReportPage({ params }: { params: Promise<{ 
         categories={categories}
         itemsByCategory={itemsByCategory}
         payrollPeriodId={period.payroll_period_id}
-        payrollNetTotalCentavos={payrollNetTotalCentavos}
+        payrollTotalOverride={period.payroll_total_override}
+        finalizedPayrollPeriods={finalizedPayrollPeriods}
+        linkedPayrollPeriod={linkedPayrollPeriod}
       />
     </div>
   );

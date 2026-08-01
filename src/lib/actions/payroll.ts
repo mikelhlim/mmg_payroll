@@ -113,7 +113,8 @@ export async function deletePeriod(id: string): Promise<{ error: string } | { ok
     .eq("payroll_period_id", id);
   if ((expenseReportCount ?? 0) > 0) {
     return {
-      error: "This payroll run has an expense report attached. Delete the expense report first.",
+      error:
+        "An expense report is linked to this payroll run for its total. Unlink or delete that expense report first.",
     };
   }
 

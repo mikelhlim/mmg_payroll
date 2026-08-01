@@ -402,13 +402,25 @@ grant execute on function public.admin_wipe_all_data() to authenticated;
 --
 -- Expense reports (see migration 20260801000000): expense_categories (an
 -- admin-managed lookup table, mirrors departments, seeded with the four
--- known expense types), expense_periods (one per payroll run, `on delete
--- restrict` on payroll_period_id — see the note on admin_wipe_all_data()
--- above), and expense_items, plus the save_expense_items() RPC. The
--- admin_wipe_all_data() body above already reflects this migration.
+-- known expense types), expense_periods (`on delete restrict` on
+-- payroll_period_id — see the note on admin_wipe_all_data() above), and
+-- expense_items, plus the save_expense_items() RPC. The admin_wipe_all_data()
+-- body above already reflects this migration.
 -- Migration 20260801010000 fixes expense_periods, which shipped with a
 -- before-update trigger (set_updated_at) but no updated_at column — every
 -- UPDATE on the table failed until the column was added.
+--
+-- Independent expense reports + per-item PDF pages (see migration
+-- 20260801020000): expense_periods.payroll_period_id is now nullable (a
+-- report is created for a period on its own, not derived from a payroll
+-- run) with a partial unique index replacing the old plain unique
+-- constraint — still at most one report per *linked* run. Added
+-- expense_periods.payroll_total_override (a manual payroll total, used only
+-- when no run is linked) and expense_periods_period_start_period_end_key
+-- (unique period dates, since they're now entered directly instead of
+-- copied from a linked run). Added expense_categories.per_item_pdf_pages
+-- (seeded true only for Miscellaneous Expenses), which makes the PDF
+-- render one extra detail page per line item for that category.
 --
 -- The canonical, up-to-date definitions live in the migration files; this
 -- schema.sql seeds a fresh database when combined with the migrations folder.

@@ -61,6 +61,25 @@ export function carryForwardDescriptions(
   return padToMinRows(rows);
 }
 
+/**
+ * Resolve which source drives a report's payroll total: a linked finalized
+ * run's live net-pay sum (recomputed from current payroll_entries, never a
+ * snapshot) when payroll_period_id is set, otherwise the manual
+ * payroll_total_override, otherwise zero (nothing attached yet).
+ */
+export function resolvePayrollTotalCentavos(
+  period: { payroll_period_id: string | null; payroll_total_override: number | null },
+  netTotalByPayrollPeriodCentavos: Record<string, number>
+): number {
+  if (period.payroll_period_id) {
+    return netTotalByPayrollPeriodCentavos[period.payroll_period_id] ?? 0;
+  }
+  if (period.payroll_total_override !== null) {
+    return toCentavos(period.payroll_total_override);
+  }
+  return 0;
+}
+
 export type ExpenseTotals = {
   payrollTotalCentavos: number;
   byCategoryCentavos: Record<string, number>;

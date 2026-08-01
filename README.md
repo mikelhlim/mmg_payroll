@@ -19,20 +19,27 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
   department in that order, with unassigned employees listed last. The dashboard's "Active
   advances"/"Open loans" tiles link straight to the affected employees, pre-filtered.
 - **Payroll** — weekly runs processed in department order; per-employee compute with a live
-  breakdown (sleep days are independent of days worked and may exceed it; overtime days may not);
-  a negative net pay blocks finalize (net = ₱0 is fine) and can be resolved in-flow by issuing an
-  advance for the shortfall; atomic finalize (`finalize_payroll_period` RPC) that records payslips
-  and decrements every loan/advance balance with payment history.
+  breakdown (days on leave is derived from days worked and locked, never hand-editable; sleep days
+  has no auto-fill relationship to days worked at all — fully independent, may exceed it; overtime
+  days may not); a negative net pay blocks finalize (net = ₱0 is fine) and can be resolved in-flow
+  by issuing an advance for the shortfall; atomic finalize (`finalize_payroll_period` RPC) that
+  records payslips and decrements every loan/advance balance with payment history.
 - **Payslip PDF** — one payslip per employee page (showing each loan/advance's remaining balance
   alongside the period's deduction) plus a company summary page grouped by department with a
-  subtotal each, and the grand total.
-- **Expense reports** — one per payroll week, entered as line items grouped by an admin-managed
-  expense type (Mau Expenses, Mau GCash/Transfer, Hardware Expenses, Miscellaneous Expenses by
-  default). A Total Expenses card rolls up the linked payroll run's net-pay total alongside each
-  type's subtotal into a grand total — read live off the payroll run, even after finalize. Each
-  type always shows at least 10 editable rows (Date/Description/Amount), dynamically add/deletable;
-  a new report carries forward the previous one's non-blank descriptions per type. Same lifecycle as
-  payroll (draft → save → finalize, with amend-to-reopen) and its own PDF.
+  subtotal each, and the grand total. Two specific employees are hardcoded to be omitted from both
+  the payslip and the summary (and the equivalent Reports per-period view) for any period where
+  their net pay is exactly ₱0 — an explicit one-off, not a general rule.
+- **Expense reports** — one per week, created independently of any payroll run, entered as line
+  items grouped by an admin-managed expense type (Mau Expenses, Mau GCash/Transfer, Hardware
+  Expenses, Miscellaneous Expenses by default). Can't be finalized until a payroll total is
+  attached — either linking a finalized payroll run (its net-pay total is read live from then on,
+  even after finalize) or typing an amount manually. A Total Expenses card rolls that total up
+  alongside each type's subtotal into a grand total. Each type always shows at least 10 editable
+  rows (Date/Description/Amount), dynamically add/deletable; a new report carries forward the
+  previous one's non-blank descriptions per type. Same lifecycle as payroll (draft → save →
+  finalize, with amend-to-reopen) and its own PDF — expense types can also be flagged to give each
+  of their line items a dedicated detail page in the PDF, in addition to the summary table
+  (on by default for Miscellaneous Expenses).
 - **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history
   (including any manual balance adjustments, kept reconciled with the live balance); a per-period
   view of who was paid and how much, grouped by department; a Payroll/Expenses tab for browsing
