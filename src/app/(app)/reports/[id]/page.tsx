@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ageFromBirthdate,
-  fullName,
+  displayName,
   type Advance,
   type Employee,
   type Loan,
@@ -115,8 +115,7 @@ export default async function EmployeeReportPage({ params }: { params: Promise<{
           >
             <ArrowLeft className="h-4 w-4" /> All reports
           </Link>
-          <h1 className="text-3xl font-bold tracking-tight">{fullName(employee)}</h1>
-          {employee.nickname && <p className="text-muted-foreground">“{employee.nickname}”</p>}
+          <h1 className="text-3xl font-bold tracking-tight">{displayName(employee)}</h1>
         </div>
         <Link href={`/employees/${employee.id}`} className={buttonVariants({ variant: "outline" })}>
           <Pencil className="h-4 w-4" /> Edit profile

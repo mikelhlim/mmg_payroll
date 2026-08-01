@@ -1,40 +1,34 @@
 import { createClient } from "@/lib/supabase/server";
-import { PeriodReportList, type PeriodSummary } from "@/components/reports/period-list";
+import { EmployeeReportList } from "@/components/reports/employee-report-list";
 import { ExpenseReportList, type ExpenseReportSummary } from "@/components/reports/expense-report-list";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toCentavos } from "@/lib/money";
 import { resolvePayrollTotalCentavos } from "@/lib/expenses/totals";
-import type { ExpenseItem, ExpensePeriod, PayrollEntry, PayrollPeriod } from "@/lib/types";
+import type { Department, Employee, ExpenseItem, ExpensePeriod, PayrollEntry } from "@/lib/types";
 
 export default async function ReportsPage() {
   const supabase = await createClient();
   const [
-    { data: periodRows },
+    { data: employeeRows },
+    { data: departmentRows },
     { data: entryRows },
     { data: expensePeriodRows },
     { data: expenseItemRows },
   ] = await Promise.all([
-    supabase.from("payroll_periods").select("*").order("period_start", { ascending: false }),
+    supabase.from("employees").select("*").order("last_name", { ascending: true }),
+    supabase
+      .from("departments")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
     supabase.from("payroll_entries").select("period_id, net_weekly_pay"),
     supabase.from("expense_periods").select("*").order("period_start", { ascending: false }),
     supabase.from("expense_items").select("expense_period_id, amount"),
   ]);
 
-  const periods = (periodRows ?? []) as PayrollPeriod[];
+  const employees = (employeeRows ?? []) as Employee[];
+  const departments = (departmentRows ?? []) as Department[];
   const entries = (entryRows ?? []) as Pick<PayrollEntry, "period_id" | "net_weekly_pay">[];
-
-  const summaries: PeriodSummary[] = periods.map((p) => {
-    const inPeriod = entries.filter((e) => e.period_id === p.id);
-    return {
-      id: p.id,
-      period_start: p.period_start,
-      period_end: p.period_end,
-      status: p.status,
-      note: p.note,
-      employeeCount: inPeriod.length,
-      totalNet: inPeriod.reduce((sum, e) => sum + e.net_weekly_pay, 0),
-    };
-  });
 
   const expensePeriods = (expensePeriodRows ?? []) as ExpensePeriod[];
   const expenseItems = (expenseItemRows ?? []) as Pick<ExpenseItem, "expense_period_id" | "amount">[];
@@ -65,16 +59,16 @@ export default async function ReportsPage() {
       <div className="animate-rise">
         <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
         <p className="text-muted-foreground">
-          Select a payroll period or expense report to see the details.
+          Select an employee or expense report to see the details.
         </p>
       </div>
-      <Tabs defaultValue="payroll">
+      <Tabs defaultValue="employees">
         <TabsList>
-          <TabsTrigger value="payroll">Payroll</TabsTrigger>
+          <TabsTrigger value="employees">Employees</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
         </TabsList>
-        <TabsContent value="payroll">
-          <PeriodReportList periods={summaries} />
+        <TabsContent value="employees">
+          <EmployeeReportList employees={employees} departments={departments} />
         </TabsContent>
         <TabsContent value="expenses">
           <ExpenseReportList reports={expenseSummaries} />

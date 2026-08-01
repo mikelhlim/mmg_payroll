@@ -11,7 +11,7 @@ import { LocalTime } from "@/components/local-time";
 import { formatPeriod } from "@/lib/payroll/period";
 import { daysMatch, periodDays } from "@/lib/payroll/validation";
 import { formatPHP } from "@/lib/money";
-import { fullName, type Department, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
+import { displayName, type Department, type Employee, type PayrollEntry, type PayrollPeriod } from "@/lib/types";
 import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
 import { DepartmentGroupHeading } from "@/components/department-group-heading";
 import { cn } from "@/lib/utils";
@@ -197,7 +197,7 @@ export default async function PayrollPeriodPage({ params }: { params: Promise<{ 
                             <Circle className="h-6 w-6 text-muted-foreground/40" />
                           )}
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium">{fullName(emp)}</p>
+                            <p className="font-medium">{displayName(emp)}</p>
                             <p className="text-xs text-muted-foreground">
                               {computed
                                 ? `${entry!.days_worked}d worked · ${entry!.days_on_leave}d leave`

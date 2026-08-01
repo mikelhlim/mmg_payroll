@@ -155,10 +155,13 @@ export type ExpenseItem = {
   updated_at: string;
 };
 
-/** Convenience: full name in "Last, First Middle" order used across reports. */
-export function fullName(e: Pick<Employee, "first_name" | "last_name" | "middle_name">): string {
-  const middle = e.middle_name ? ` ${e.middle_name}` : "";
-  return `${e.last_name}, ${e.first_name}${middle}`;
+/**
+ * Convenience: the single display name shown everywhere an employee is
+ * listed or shows up in a generated report — "Last, Nickname" order, falling
+ * back to the first name when there's no nickname on record.
+ */
+export function displayName(e: Pick<Employee, "first_name" | "last_name" | "nickname">): string {
+  return `${e.last_name}, ${e.nickname || e.first_name}`;
 }
 
 /** Age in whole years from a yyyy-mm-dd birthdate, or null. */

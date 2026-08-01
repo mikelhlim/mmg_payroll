@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ComputeForm } from "@/components/payroll/compute-form";
 import { formatPeriod } from "@/lib/payroll/period";
 import {
-  fullName,
+  displayName,
   type Advance,
   type Department,
   type Employee,
@@ -78,7 +78,7 @@ export default async function ComputeEmployeePage({
         >
           <ArrowLeft className="h-4 w-4" /> Back to run
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">{fullName(employee)}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{displayName(employee)}</h1>
         <p className="text-muted-foreground">
           {formatPeriod(period.period_start, period.period_end)}
           {period.status === "finalized" ? " · finalized (read-only)" : ""}

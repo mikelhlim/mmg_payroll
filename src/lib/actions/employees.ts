@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertAuthenticated } from "@/lib/auth-role";
 import { logTransaction } from "@/lib/transaction-log";
 import { formatPHP } from "@/lib/money";
+import { displayName } from "@/lib/types";
 import { employeeSchema, type EmployeeInput } from "@/lib/validation/employee";
 
 export type EmployeeActionResult =
@@ -65,7 +66,7 @@ export async function createEmployee(raw: EmployeeInput): Promise<EmployeeAction
     action: "create",
     entity: "employee",
     entity_id: data.id,
-    summary: `Added employee ${parsed.data.last_name}, ${parsed.data.first_name}`,
+    summary: `Added employee ${displayName(parsed.data)}`,
   });
 
   revalidatePath("/employees");
@@ -152,7 +153,7 @@ export async function updateEmployee(
     action: "update",
     entity: "employee",
     entity_id: id,
-    summary: `Updated employee ${parsed.data.last_name}, ${parsed.data.first_name}`,
+    summary: `Updated employee ${displayName(parsed.data)}`,
   });
 
   revalidatePath("/employees");
@@ -167,7 +168,7 @@ export async function deleteEmployee(id: string): Promise<{ error: string } | { 
 
   const { data: existing } = await supabase
     .from("employees")
-    .select("first_name, last_name")
+    .select("first_name, last_name, nickname")
     .eq("id", id)
     .maybeSingle();
 
@@ -187,9 +188,7 @@ export async function deleteEmployee(id: string): Promise<{ error: string } | { 
     action: "delete",
     entity: "employee",
     entity_id: id,
-    summary: existing
-      ? `Deleted employee ${existing.last_name}, ${existing.first_name}`
-      : "Deleted employee",
+    summary: existing ? `Deleted employee ${displayName(existing)}` : "Deleted employee",
   });
 
   revalidatePath("/employees");

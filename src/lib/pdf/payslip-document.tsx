@@ -1,6 +1,6 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Department, Employee, PayrollEntry, PayrollPeriod } from "@/lib/types";
-import { fullName } from "@/lib/types";
+import { displayName } from "@/lib/types";
 import { groupByDepartment, sortEmployeesByDepartment } from "@/lib/departments";
 import { hideFromZeroNetReports } from "@/lib/payroll/report-exclusions";
 import { peso, dateRange } from "@/lib/pdf/format";
@@ -39,7 +39,6 @@ const styles = StyleSheet.create({
   period: { fontSize: 7, color: "#6b7280", marginBottom: 6 },
   rule: { borderBottomWidth: 1, borderBottomColor: "#e5e1f0", marginVertical: 5 },
   empName: { fontSize: 10, fontFamily: "Helvetica-Bold" },
-  empMeta: { fontSize: 6.5, color: "#6b7280", marginTop: 1 },
   sectionTitle: { fontSize: 7, fontFamily: "Helvetica-Bold", color: "#6d4bd8", marginBottom: 3, marginTop: 3 },
   row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 1.5 },
   label: { color: "#374151" },
@@ -115,12 +114,7 @@ function PayslipHalf({
       </View>
       <Text style={styles.period}>Pay period: {dateRange(period)}</Text>
 
-      <Text style={styles.empName}>{fullName(employee)}</Text>
-      <Text style={styles.empMeta}>
-        {employee.nickname ? `"${employee.nickname}"  ·  ` : ""}
-        SSS {employee.sss_number ?? "N/A"}  ·  PhilHealth {employee.philhealth_number ?? "N/A"}  ·  Pag-IBIG{" "}
-        {employee.pagibig_number ?? "N/A"}
-      </Text>
+      <Text style={styles.empName}>{displayName(employee)}</Text>
 
       <View style={styles.rule} />
 
@@ -202,7 +196,7 @@ function PayslipHalf({
       </View>
 
       <Text style={styles.halfFooter}>
-        {fullName(employee)} · {dateRange(period)} · Days on leave: {entry.days_on_leave}
+        {displayName(employee)} · {dateRange(period)} · Days on leave: {entry.days_on_leave}
       </Text>
     </View>
   );
@@ -280,7 +274,7 @@ export function PayslipDocument({
               </View>
               {g.employees.map((r) => (
                 <View key={r.entry.id} style={styles.sumRow}>
-                  <Text style={styles.sumName}>{fullName(r.employee)}</Text>
+                  <Text style={styles.sumName}>{displayName(r.employee)}</Text>
                   <Text style={styles.sumDays}>{r.entry.days_worked}</Text>
                   <Text style={styles.sumNet}>{peso(r.entry.net_weekly_pay)}</Text>
                 </View>

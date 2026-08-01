@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeForm } from "@/components/employees/employee-form";
 import { buttonVariants } from "@/components/ui/button";
-import { fullName, type Advance, type Department, type Employee, type Loan } from "@/lib/types";
+import { displayName, type Advance, type Department, type Employee, type Loan } from "@/lib/types";
 import { ArrowLeft, FileText } from "lucide-react";
 
 export default async function EmployeeEditPage({
@@ -46,10 +46,9 @@ export default async function EmployeeEditPage({
           >
             <ArrowLeft className="h-4 w-4" /> Back to employees
           </Link>
-          <h1 className="text-3xl font-bold tracking-tight">{fullName(employee)}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{displayName(employee)}</h1>
           <p className="text-muted-foreground">
-            {employee.nickname ? `“${employee.nickname}” · ` : ""}Profile &amp; compensation (loans
-            and advances are under the Compensation tab)
+            Profile &amp; compensation (loans and advances are under the Compensation tab)
           </p>
         </div>
         <Link

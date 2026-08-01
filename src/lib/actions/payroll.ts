@@ -15,7 +15,7 @@ import { formatPeriod } from "@/lib/payroll/period";
 import { buildEntryRow } from "@/lib/payroll/build-entry";
 import { formatPHP } from "@/lib/money";
 import { MAX_ADVANCES } from "@/lib/validation/obligations";
-import { fullName, type Advance, type Employee, type Loan } from "@/lib/types";
+import { displayName, type Advance, type Employee, type Loan } from "@/lib/types";
 
 export type CreatePeriodResult =
   | { error: string }
@@ -190,7 +190,7 @@ export async function savePayrollEntry(
       action: "update",
       entity: "employee",
       entity_id: employeeId,
-      summary: `Updated notes for ${fullName(employee as Employee)}`,
+      summary: `Updated notes for ${displayName(employee as Employee)}`,
     });
     revalidatePath(`/employees/${employeeId}`);
   }
@@ -228,7 +228,7 @@ export async function savePayrollEntry(
     action: existing ? "update" : "create",
     entity: "payroll_entry",
     entity_id: employeeId,
-    summary: `${existing ? "Updated" : "Computed"} payroll for ${fullName(
+    summary: `${existing ? "Updated" : "Computed"} payroll for ${displayName(
       employee as Employee
     )} (${formatPeriod(period.period_start, period.period_end)}) — net ${formatPHP(
       netWeeklyPay
@@ -359,14 +359,14 @@ export async function coverShortfallWithAdvance(
     entity: "payroll_entry",
     entity_id: employeeId,
     summary: existingForThisPeriod
-      ? `Covered a further ${formatPHP(shortfall)} shortfall for ${fullName(
+      ? `Covered a further ${formatPHP(shortfall)} shortfall for ${displayName(
           employee as Employee
         )} by topping up the existing shortfall advance for this period (${formatPeriod(period.period_start, period.period_end)})`
       : mostRecent
-        ? `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
+        ? `Covered a ${formatPHP(shortfall)} shortfall for ${displayName(
             employee as Employee
           )} by adding it to their "${mostRecent.label ?? "existing"}" advance (already at the ${MAX_ADVANCES}-advance limit; ${formatPeriod(period.period_start, period.period_end)})`
-        : `Covered a ${formatPHP(shortfall)} shortfall for ${fullName(
+        : `Covered a ${formatPHP(shortfall)} shortfall for ${displayName(
             employee as Employee
           )} with a new advance (${formatPeriod(period.period_start, period.period_end)})`,
     details: { shortfall, foldedIntoAdvanceId: topUpTarget?.id ?? null },
