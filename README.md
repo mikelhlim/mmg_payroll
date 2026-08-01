@@ -12,12 +12,16 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
 - **Auth** — email/password (Supabase), forced password change on first login, admin/staff roles.
 - **Employees** — full profile (names, nickname, birthdate, employment date, gov't IDs, a free-text
   notes field), compensation (daily wage, daily overtime fee, food/sleep allowance), an optional
-  department assignment, SSS/Pag-IBIG loans, and up to 5 cash advances.
+  department assignment, SSS/Pag-IBIG loans, and up to 5 cash advances. Everywhere an employee is
+  listed or shows up in a generated report, their name reads "Last, Nickname" (falling back to
+  first name when there's no nickname on record).
 - **Departments** — organize employees into departments with a managed processing order (Admin →
   Departments: create/rename/reorder/delete). Every list of employees — the employee list, the
-  payroll roster and stepper, the Reports period view, and the payslip PDF — is grouped by
+  payroll roster and stepper, Reports' employee directory, and the payslip PDF — is grouped by
   department in that order, with unassigned employees listed last. The dashboard's "Active
-  advances"/"Open loans" tiles link straight to the affected employees, pre-filtered.
+  advances"/"Open loans" tiles link to a department-grouped list of every individual active advance
+  or open loan (not just the affected employees) — full detail per record, so one employee holding
+  two advances (or both an SSS and a Pag-IBIG loan) shows up as two separate rows.
 - **Payroll** — weekly runs processed in department order; per-employee compute with a live
   breakdown (days on leave is derived from days worked and locked, never hand-editable; sleep days
   has no auto-fill relationship to days worked at all — fully independent, may exceed it; overtime
@@ -25,10 +29,10 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
   by issuing an advance for the shortfall; atomic finalize (`finalize_payroll_period` RPC) that
   records payslips and decrements every loan/advance balance with payment history.
 - **Payslip PDF** — one payslip per employee page (showing each loan/advance's remaining balance
-  alongside the period's deduction) plus a company summary page grouped by department with a
-  subtotal each, and the grand total. Two specific employees are hardcoded to be omitted from both
-  the payslip and the summary (and the equivalent Reports per-period view) for any period where
-  their net pay is exactly ₱0 — an explicit one-off, not a general rule.
+  alongside the period's deduction, but no gov't ID numbers) plus a company summary page grouped by
+  department with a subtotal each, and the grand total. Two specific employees are hardcoded to be
+  omitted from both the payslip and the summary for any period where their net pay is exactly ₱0 —
+  an explicit one-off, not a general rule.
 - **Expense reports** — one per week, created independently of any payroll run, entered as line
   items grouped by an admin-managed expense type (Mau Expenses, Mau GCash/Transfer, Hardware
   Expenses, Miscellaneous Expenses by default). Can't be finalized until a payroll total is
@@ -40,10 +44,10 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Supabase · Ta
   finalize, with amend-to-reopen) and its own PDF — expense types can also be flagged to give each
   of their line items a dedicated detail page in the PDF, in addition to the summary table
   (on by default for Miscellaneous Expenses).
-- **Reports** — per-employee profile, loan/advance balances, payslip history, and payment history
-  (including any manual balance adjustments, kept reconciled with the live balance); a per-period
-  view of who was paid and how much, grouped by department; a Payroll/Expenses tab for browsing
-  either kind of period.
+- **Reports** — an Employees tab lists everyone, grouped by department, linking to a per-employee
+  page with profile, loan/advance balances, full payslip history (every finalized period, with a
+  PDF link each), and payment history (including any manual balance adjustments, kept reconciled
+  with the live balance); an Expenses tab for browsing expense reports.
 - **Admin** — user management (add/change role/delete), department management, expense-type
   management, an audit log of every mutation (`/admin/logs`), and "Delete all data except admin".
 

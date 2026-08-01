@@ -15,9 +15,11 @@ An in-house weekly payroll system for a Philippine daily-wage workforce (back-of
 is no employee self-service). Staff manage employee profiles, run payroll for a period
 employee-by-employee with live net-pay computation, finalize atomically (drawing down loan/advance
 balances), and generate payslip PDFs. Employees can be assigned to a department; every screen that
-lists employees — the employee list, payroll roster, Reports period view, Prev/Next stepper, and
-the payslip PDF (including its company summary page, which subtotals per department) — is
-grouped/ordered by department. Staff can also enter a weekly **expense report** alongside each
+lists employees — the employee list, payroll roster, Reports' employee directory, Prev/Next
+stepper, and the payslip PDF (including its company summary page, which subtotals per department) —
+is grouped/ordered by department. Every employee is shown as "Last, Nickname" (falling back to first
+name), consistently across all of these plus audit-log summaries. Staff can also enter a weekly
+**expense report** alongside each
 payroll run — line items grouped by an admin-managed expense type, rolled up with that week's
 payroll total into a grand total — with the same draft/finalize/amend lifecycle and its own PDF (see
 "Expense reports" below). The UI/app title is "MMG HR and Payroll System";
@@ -145,10 +147,10 @@ still assigned). `src/lib/departments.ts` exports `sortEmployeesByDepartment`/`g
 (order: department `sort_order`, then employee last name; unassigned employees sort last) — the
 single source of truth for department ordering, reused by every screen that lists employees: the
 employee list (`employee-list.tsx`), the payroll roster (`payroll/[id]/page.tsx`) and Prev/Next
-stepper (`payroll/[id]/[employeeId]/page.tsx`), the Reports period view
-(`reports/period/[id]/page.tsx`), and the payslip PDF (`payslip-document.tsx`). The roster and
-Reports period view previously only *sorted* by department (no section headers); they now group
-with headers too, same as the employee list. `groupByDepartment` result types don't carry
+stepper (`payroll/[id]/[employeeId]/page.tsx`), Reports' employee directory
+(`components/reports/employee-report-list.tsx`), the dashboard's Active Advances/Open Loans lists
+(`components/employees/obligations-report-list.tsx`), and the payslip PDF (`payslip-document.tsx`).
+`groupByDepartment` result types don't carry
 `department_id`/`last_name` at the top level for rows shaped like `{ entry, employee }` (payroll
 entries, payslip rows) — callers lift those two fields onto the row before grouping (see
 `toSortable` in `payslip-document.tsx` for the pattern) since the grouping/sorting functions require
@@ -157,11 +159,33 @@ them there. Department section headers are the shared `DepartmentGroupHeading` c
 reports pages use it too) — deliberately `text-lg`, not `text-sm`, so a group name reads clearly
 larger than the row content beneath it; change it there once rather than per-page.
 
-The dashboard's "Active advances"/"Open loans" stat tiles link to `/employees?filter=advances` /
-`?filter=loans`, which narrows `EmployeeList` to just the affected employees (still department-
-grouped, empty groups hidden) and swaps the nickname column for each employee's balance. Note the
-loan tile's count is loan *records*, not people — one employee can hold both an SSS and a Pag-IBIG
-loan, so "3 open loans" can resolve to fewer than 3 people.
+**Dashboard drill-through shows individual records, not an aggregate (2026-08-02).** The
+"Active advances"/"Open loans" stat tiles link to `/employees?filter=advances` / `?filter=loans`;
+`employees/page.tsx` branches on that query param and, instead of the plain employee roster, fetches
+every active advance (or every loan with `current_balance > 0`) embedded with its employee
+(`.select("*, employees(*)")` — a single unambiguous FK each, same embed pattern as
+`payroll_entries.select("*, employees(*)")` elsewhere) and renders
+`AdvancesReportList`/`LoansReportList` (`components/employees/obligations-report-list.tsx`) —
+one row *per record*, department-grouped, showing the employee, the label/loan type, balance of
+total/principal, and start date. An employee holding two advances (or both an SSS and a Pag-IBIG
+loan) shows up as two separate rows, not one summed balance — this replaced an earlier version that
+filtered `EmployeeList` down to the affected employees and showed one aggregated balance number each;
+`EmployeeList` no longer has any filter/balance-column concept at all now that nothing renders it
+that way (a plain, always-unfiltered roster component).
+
+### Employee display name
+`displayName()` in `src/lib/types.ts` (renamed from `fullName()` on 2026-08-02, which used to render
+"Last, First Middle") is the single function behind every employee name shown anywhere — "Last,
+Nickname", falling back to the first name when there's no nickname on record. It cascades to the
+employee list, payroll roster, compute-form and report page headers, the payslip PDF, and audit-log
+summary strings in `actions/payroll.ts`/`actions/employees.ts` (the latter's create/update/delete
+summaries used to hand-concatenate `"${last_name}, ${first_name}"` and were switched to call
+`displayName()` too, for consistency). Any place that used to *also* show the nickname a second time
+right next to the name — as now-redundant prose, not as one field in a data table — had that removed
+(the payslip's old meta line, a subtitle under the Employee Report's `<h1>`, a subtitle prefix on the
+employee edit page, the employee list's old nickname column/card suffix). The one intentional
+exception: the Employee Report's structured Profile info grid still has its own "Nickname" row,
+since that's one fact among many in a table, not prose duplicating the header above it.
 
 ### Expense reports
 An expense report (`expense_periods`) is created **independently of any payroll run** — its own
@@ -263,6 +287,20 @@ still surface, rendered as "Manual adjustment" in place of a period. **The ident
 exists for loans** (`payroll_loan_payments`/`updateLoan` has no equivalent reconciliation) — not
 fixed, out of scope so far.
 
+### Reports
+`reports/page.tsx` has two tabs: **Employees** and **Expenses**. The Employees tab
+(`components/reports/employee-report-list.tsx`) is a flat, department-grouped directory of every
+employee linking straight to their per-employee report page (`reports/[id]/page.tsx` — profile,
+loan/advance balances, full payslip history with a PDF link per period, and payment history;
+unchanged). **This replaced a "Payroll" tab (2026-08-02)** that listed payroll periods
+(`components/reports/period-list.tsx`) linking to a per-period roster grouped by department
+(`reports/period/[id]/page.tsx`) — both files were deleted outright once nothing referenced them.
+Confirmed before deleting: the per-employee report's "Payslip history" table already lists every
+finalized period that employee was part of (net pay included, PDF link each), so no information was
+actually lost — it's just employee-first instead of period-first now. The per-period *operational*
+roster (who's computed, who's negative, Finalize/Amend) is unaffected and still lives at
+`/payroll/[id]`, outside Reports.
+
 ### Money handling
 DB money columns are `numeric(12,2)`. The app never does arithmetic in floats/pesos — everything
 funnels through integer *centavos* (`src/lib/money.ts`: `toCentavos`/`fromCentavos`/
@@ -321,15 +359,22 @@ payslip shows current standing, matching the Employee Report's balance cards, no
 was at finalize time. The summary page groups rows by department with a subtotal per department
 (via `groupByDepartment`, same as the roster/Reports), plus the original grand total.
 
+**Payslip identity line pared down (2026-08-02).** The per-employee meta line under the name used to
+show the SSS/PhilHealth/Pag-IBIG numbers plus a quoted nickname; both are gone now (the numbers
+removed outright, the nickname removed as redundant once the name itself became "Last, Nickname" —
+see "Employee display name" above). Nothing replaced that line; it and its `empMeta` style were
+deleted outright.
+
 **Hardcoded zero-net exclusion for two employees (2026-08-01).**
 `src/lib/payroll/report-exclusions.ts` exports `hideFromZeroNetReports(employeeId, netWeeklyPay)` —
 an explicit, acknowledged one-off, not a general rule — keyed by two real employee ids. When one of
-those two has exactly ₱0 net pay for a period, they're dropped from that period's payslip page, the
-payslip PDF's summary page (`PayslipDocument` filters once up front so `sorted`/`groups`/
-`grandTotal` all inherit it), and the equivalent web view, the Reports per-period page
-(`reports/period/[id]/page.tsx`). Deliberately **not** applied to the payroll roster/compute page
-(staff still need to see and pay every employee there) or to an employee's own payslip-history table
-on their profile page.
+those two has exactly ₱0 net pay for a period, they're dropped from that period's payslip page and
+the payslip PDF's summary page (`PayslipDocument` filters once up front so `sorted`/`groups`/
+`grandTotal` all inherit it). Deliberately **not** applied to the payroll roster/compute page (staff
+still need to see and pay every employee there) or to an employee's own payslip-history table on
+their profile page. (This used to *also* apply to a Reports per-period page; that page was removed
+entirely on 2026-08-02 — see "Reports" below — so the PDF is now the only place this exclusion
+applies.)
 
 ### Types
 `src/lib/types.ts` hand-mirrors the `payroll_entries`/`employees`/`advances`/`loans`/
